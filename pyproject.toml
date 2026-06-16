@@ -1,0 +1,31 @@
+[tool.poetry]
+name = "petct-scheduler"
+version = "1.0.0"
+description = "医联体核医学中心PET-CT检查流程协同后端服务"
+authors = ["Medical IT Team"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.109.0"
+uvicorn = "^0.27.0"
+sqlalchemy = "^2.0.25"
+alembic = "^1.13.1"
+pydantic = "^2.5.3"
+pydantic-settings = "^2.1.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+apscheduler = "^3.10.4"
+pandas = "^2.2.0"
+openpyxl = "^3.1.2"
+reportlab = "^4.0.9"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.3"
+httpx = "^0.26.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
