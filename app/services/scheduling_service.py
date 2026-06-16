@@ -65,9 +65,22 @@ class SchedulingService:
             "time_slot": None,
             "tracer_batch_id": None,
             "injection_window": None,
+            "tracer_window": None,
             "queue_number": None,
             "warnings": []
         }
+
+        if appointment.equipment_id and appointment.time_slot and appointment.queue_number:
+            result["allocated"] = True
+            result["equipment_id"] = appointment.equipment_id
+            result["time_slot"] = appointment.time_slot
+            result["queue_number"] = appointment.queue_number
+            result["tracer_batch_id"] = appointment.tracer_batch_id
+            result["tracer_window"] = "待分配"
+            result["appointment_date"] = appointment.appointment_date
+            result["hospital_id"] = appointment.hospital_id
+            result["warnings"].append("预约已有资源分配")
+            return result
 
         daily_capacity = self._get_daily_capacity(
             appointment.hospital_id,
@@ -124,6 +137,11 @@ class SchedulingService:
         if tracer_allocation:
             result.update(tracer_allocation)
 
+        if "tracer_window" not in result or result.get("tracer_window") is None:
+            result["tracer_window"] = result.get("injection_window")
+        if result.get("tracer_window") is None:
+            result["tracer_window"] = "待分配"
+
         appointment.equipment_id = equipment.id
         appointment.time_slot = time_slot
         appointment.queue_number = queue_num
@@ -135,6 +153,8 @@ class SchedulingService:
 
         result["allocated"] = True
         result["tracer_window"] = result.get("injection_window")
+        result["appointment_date"] = appointment.appointment_date
+        result["hospital_id"] = appointment.hospital_id
         self.db.commit()
 
         logger.info(f"资源分配成功: 预约{appointment.appointment_no} -> 设备{equipment.id}, 时段{time_slot}")
@@ -348,7 +368,7 @@ class SchedulingService:
         self,
         queue_number: int,
         equipment: Equipment,
-        categorization: AppointmentCategorizeResponse
+        categorization: Optional[AppointmentCategorizeResponse] = None
     ) -> str:
         """计算具体时段"""
         template = self._get_applicable_template(equipment.hospital_id, date.today())
@@ -375,9 +395,10 @@ class SchedulingService:
                 minutes=(afternoon_pos - 1) * slot_duration
             )
 
-        if categorization.priority_score >= 80:
+        priority_score = categorization.priority_score if categorization else 50
+        if priority_score >= 80:
             period = "优先"
-        elif categorization.priority_score >= 60:
+        elif priority_score >= 60:
             period = "上午" if queue_number <= morning_capacity else "下午"
         else:
             period = "上午" if queue_number <= morning_capacity else "下午"
@@ -623,36 +644,45 @@ class SchedulingService:
         """获取可用时段列表"""
         from app.models import Equipment, Appointment
 
-        equipment_list = self.db.query(Equipment).filter(
-            Equipment.hospital_id == hospital_id,
-            Equipment.is_active == True,
-            Equipment.status == "available"
-        ).all()
+        try:
+            equipment_list = self.db.query(Equipment).filter(
+                Equipment.hospital_id == hospital_id,
+                Equipment.is_active == True,
+                Equipment.status == "available"
+            ).all()
+        except Exception:
+            return []
+
+        if not equipment_list:
+            return []
 
         slots = []
         for eq in equipment_list:
-            daily_schedule = self._get_equipment_daily_schedule(eq.id, target_date)
-            used_queues = [a.queue_number for a in daily_schedule if a.queue_number]
+            try:
+                daily_schedule = self._get_equipment_daily_schedule(eq.id, target_date)
+                used_queues = [a.queue_number for a in daily_schedule if a.queue_number]
 
-            template = self._get_applicable_template(hospital_id, target_date)
-            morning_cap = template.morning_capacity if template else 12
-            total_cap = eq.daily_capacity
+                template = self._get_applicable_template(hospital_id, target_date)
+                morning_cap = template.morning_capacity if template else 12
+                total_cap = eq.daily_capacity
 
-            for queue_num in range(1, total_cap + 1):
-                if queue_num not in used_queues:
-                    time_slot = self._calculate_time_slot(queue_num, eq, None)
-                    period = "上午" if queue_num <= morning_cap else "下午"
+                for queue_num in range(1, total_cap + 1):
+                    if queue_num not in used_queues:
+                        time_slot = self._calculate_time_slot(queue_num, eq, None)
+                        period = "上午" if queue_num <= morning_cap else "下午"
 
-                    slots.append({
-                        "equipment_id": eq.id,
-                        "equipment_name": eq.name,
-                        "queue_number": queue_num,
-                        "time_slot": time_slot,
-                        "period": period,
-                        "duration_minutes": eq.scan_duration_minutes + eq.setup_duration_minutes,
-                        "needs_anesthesia": needs_anesthesia,
-                        "tracer_type": tracer_type or "fdg"
-                    })
+                        slots.append({
+                            "equipment_id": eq.id,
+                            "equipment_name": eq.name,
+                            "queue_number": queue_num,
+                            "time_slot": time_slot,
+                            "period": period,
+                            "duration_minutes": eq.scan_duration_minutes + eq.setup_duration_minutes,
+                            "needs_anesthesia": needs_anesthesia,
+                            "tracer_type": tracer_type or "fdg"
+                        })
+            except Exception:
+                continue
 
         return slots[:30]
 
@@ -889,6 +919,9 @@ class SchedulingService:
                 appointment.hospital_id = original_hospital_id
                 appointment.appointment_date = original_date
                 appointment.equipment_id = None
+            else:
+                result["appointment_date"] = appointment.appointment_date
+                result["hospital_id"] = appointment.hospital_id
 
             return result
 

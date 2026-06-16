@@ -34,6 +34,7 @@ def _build_status_response(appointment: Appointment, status_type: str) -> Dict[s
             "injection_time": appointment.injection_time,
             "scan_start_time": appointment.scan_start_time,
             "completion_time": appointment.completion_time,
+            "complete_time": appointment.completion_time,
             "cancellation_time": appointment.cancelled_at,
             "cancel_time": appointment.cancelled_at,
             "status_changed_at": appointment.status_changed_at
@@ -45,6 +46,7 @@ def _build_status_response(appointment: Appointment, status_type: str) -> Dict[s
         "injection_time": appointment.injection_time,
         "scan_start_time": appointment.scan_start_time,
         "completion_time": appointment.completion_time,
+        "complete_time": appointment.completion_time,
         "cancellation_time": appointment.cancelled_at
     }
     if appointment.cancelled_at:

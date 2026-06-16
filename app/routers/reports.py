@@ -158,9 +158,10 @@ def export_report(
     )
 
 
-@router.get("/kpi/dashboard", response_model=ApiResponse)
+@router.get("/kpi-dashboard", response_model=ApiResponse)
 def get_kpi_dashboard(
     hospital_id: Optional[int] = None,
+    period: Optional[str] = None,
     date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)

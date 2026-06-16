@@ -106,26 +106,32 @@ class RescheduleService:
         处理药物到货延迟
         顺延注射时间或批量改期
         """
-        tracer_batch = self.db.query(TracerBatch).filter(
-            TracerBatch.id == request.tracer_batch_id
-        ).first()
+        tracer_batch = None
+        if request.tracer_batch_id:
+            tracer_batch = self.db.query(TracerBatch).filter(
+                TracerBatch.id == request.tracer_batch_id
+            ).first()
 
-        if not tracer_batch:
-            raise ValidationError(f"药物批次不存在: {request.tracer_batch_id}")
+            if not tracer_batch:
+                raise ValidationError(f"药物批次不存在: {request.tracer_batch_id}")
 
-        if request.new_arrival_time:
-            tracer_batch.arrival_time = request.new_arrival_time
-            tracer_batch.status = "in_transit"
+            if request.new_arrival_time:
+                tracer_batch.arrival_time = request.new_arrival_time
+                tracer_batch.status = "in_transit"
+
+        hospital_id = request.hospital_id
+        if not hospital_id and request.affected_hospital_ids:
+            hospital_id = request.affected_hospital_ids[0]
 
         affected_appointments = self._find_affected_by_drug_delay(
-            hospital_id=request.hospital_id,
-            tracer_id=request.tracer_id,
+            hospital_id=hospital_id or 0,
+            tracer_id=request.tracer_id or 0,
             expected_delay_minutes=request.expected_delay_minutes,
             affected_appointment_ids=request.affected_appointment_ids
         )
 
         logger.warning(
-            f"药物到货延迟: 批次={tracer_batch.batch_no}, "
+            f"药物到货延迟: 批次={tracer_batch.batch_no if tracer_batch else '无'}, "
             f"延迟{request.expected_delay_minutes}分钟, "
             f"受影响预约数: {len(affected_appointments)}, "
             f"原因: {request.reason}"
@@ -142,13 +148,13 @@ class RescheduleService:
         if request.auto_reschedule and affected_appointments:
             batch_request = BatchRescheduleRequest(
                 appointment_ids=[a.id for a in affected_appointments],
-                hospital_id=request.hospital_id,
+                hospital_id=hospital_id,
                 affected_date=date.today(),
                 reason=RescheduleReason.DRUG_DELAY,
                 reason_detail=request.reason,
                 strategy=request.reschedule_strategy,
                 allow_cross_hospital=True,
-                notify_patient=True,
+                notify_patient=request.notify_patients if hasattr(request, 'notify_patients') else True,
                 notify_hospital=True,
                 operator=request.operator,
                 dry_run=False
@@ -243,10 +249,9 @@ class RescheduleService:
         )
 
         preparation_notes = get_preparation_notes(
-            exam_purpose=request.exam_purpose,
-            is_inpatient=request.is_inpatient,
+            tracer_type=appointment.tracer_type or "fdg",
             needs_anesthesia=request.needs_anesthesia,
-            tracer_type=appointment.tracer_type
+            is_inpatient=request.is_inpatient
         )
 
         return {
@@ -254,12 +259,14 @@ class RescheduleService:
             "appointment_id": appointment.id,
             "appointment_no": appointment.appointment_no,
             "queue_number": appointment.queue_number,
+            "queue_position": appointment.queue_number,
             "time_slot": appointment.time_slot,
             "equipment_id": appointment.equipment_id,
             "priority_score": categorization.priority_score,
             "category": categorization.category,
             "preparation_notes": preparation_notes,
             "shift_impact": shift_result,
+            "affected_count": shift_result.get("total_affected", 0) if shift_result else 0,
             "estimated_checkin_time": self._calculate_checkin_time(appointment)
         }
 
@@ -416,17 +423,18 @@ class RescheduleService:
             )
 
         if not request.dry_run:
-            appointment.appointment_date = allocation["appointment_date"]
-            appointment.hospital_id = allocation["hospital_id"]
-            appointment.equipment_id = allocation["equipment_id"]
-            appointment.time_slot = allocation["time_slot"]
-            appointment.queue_number = allocation["queue_number"]
-            appointment.tracer_batch_id = allocation["tracer_batch_id"]
+            appointment.appointment_date = allocation.get("appointment_date", appointment.appointment_date)
+            appointment.hospital_id = allocation.get("hospital_id", appointment.hospital_id)
+            appointment.equipment_id = allocation.get("equipment_id")
+            appointment.time_slot = allocation.get("time_slot")
+            appointment.queue_number = allocation.get("queue_number")
+            if allocation.get("tracer_batch_id"):
+                appointment.tracer_batch_id = allocation["tracer_batch_id"]
             appointment.status = "confirmed"
             appointment.sub_status = "rescheduled"
             appointment.status_changed_at = datetime.utcnow()
 
-            if allocation["hospital_id"] != old_hospital_id:
+            if allocation.get("hospital_id", appointment.hospital_id) != old_hospital_id:
                 appointment.is_referral = True
                 appointment.referral_reason = request.reason_detail
 
@@ -475,17 +483,27 @@ class RescheduleService:
         affected_appointment_ids: Optional[List[int]] = None
     ) -> List[Appointment]:
         """查找受药物延迟影响的预约"""
+        if affected_appointment_ids:
+            return self.db.query(Appointment).filter(
+                and_(
+                    Appointment.id.in_(affected_appointment_ids),
+                    Appointment.status.in_(["pending", "confirmed", "checked_in"])
+                )
+            ).order_by(Appointment.priority_score.desc()).all()
+
         query = self.db.query(Appointment).filter(
             and_(
                 Appointment.hospital_id == hospital_id,
-                Appointment.tracer_type == str(tracer_id),
-                Appointment.status.in_(["pending", "confirmed"]),
+                Appointment.status.in_(["pending", "confirmed", "checked_in"]),
                 Appointment.appointment_date == date.today()
             )
         )
 
-        if affected_appointment_ids:
-            query = query.filter(Appointment.id.in_(affected_appointment_ids))
+        if tracer_id:
+            from app.models import Tracer
+            tracer = self.db.query(Tracer).filter(Tracer.id == tracer_id).first()
+            if tracer:
+                query = query.filter(Appointment.tracer_type == tracer.tracer_type)
 
         return query.order_by(Appointment.injection_time).all()
 

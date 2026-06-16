@@ -59,11 +59,16 @@ class InjectionRequest(BaseModel):
     appointment_id: int = Field(..., description="预约ID")
     injection_time: Optional[datetime] = Field(default=None, description="注射时间")
     recorded_by: Optional[str] = Field(default=None, description="记录人")
+    operator: Optional[str] = Field(default=None, description="操作人(别名recorded_by)")
 
     tracer_batch_no: Optional[str] = Field(default=None, max_length=50, description="示踪剂批次号")
     tracer_type: str = Field(default="fdg", max_length=20, description="示踪剂类型")
+    tracer_name: Optional[str] = Field(default=None, max_length=50, description="示踪剂名称")
+    tracer_id: Optional[int] = Field(default=None, description="示踪剂ID")
     tracer_dose_mbq: Optional[float] = Field(default=None, gt=0, description="注射剂量(MBq)")
+    dose_mbq: Optional[float] = Field(default=None, gt=0, description="注射剂量(MBq)(别名)")
     tracer_injection_site: Optional[str] = Field(default=None, max_length=50, description="注射部位")
+    injection_site: Optional[str] = Field(default=None, max_length=50, description="注射部位(别名)")
     vein_access: Optional[str] = Field(default=None, max_length=50, description="静脉通路")
 
     administered_by: Optional[str] = Field(default=None, max_length=50, description="注射人员")
@@ -72,6 +77,15 @@ class InjectionRequest(BaseModel):
 
     blood_glucose: Optional[float] = Field(default=None, description="血糖值")
     notes: Optional[str] = Field(default=None, description="备注")
+
+    def get_effective_recorded_by(self) -> Optional[str]:
+        return self.recorded_by or self.operator
+
+    def get_effective_dose_mbq(self) -> Optional[float]:
+        return self.tracer_dose_mbq or self.dose_mbq
+
+    def get_effective_injection_site(self) -> Optional[str]:
+        return self.tracer_injection_site or self.injection_site
 
 
 class ScanStartRequest(BaseModel):

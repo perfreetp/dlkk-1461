@@ -1192,15 +1192,24 @@ class ReportService:
         )
         today_data = self.generate_daily_operation_report(today_params)
 
-        return {
+        turnover_summary = turnover_data.get("summary", {})
+        drug_summary = drug_data.get("summary", {})
+        referral_summary = referral_data.get("summary", {})
+
+        result = {
             "date": target_date,
             "hospital_id": hospital_id,
+            "completion_rate": turnover_summary.get("overall_completion_rate", 0),
+            "no_show_rate": turnover_summary.get("overall_no_show_rate", 0),
+            "avg_turnover_minutes": turnover_summary.get("avg_turnover_minutes", 0),
+            "drug_utilization_rate": drug_summary.get("overall_utilization_rate", 0),
+            "referral_completion_rate": referral_summary.get("overall_completion_rate", 0),
             "last_7_days": {
-                "total_appointments": turnover_data.get("summary", {}).get("total_appointments", 0),
-                "completion_rate": turnover_data.get("summary", {}).get("overall_completion_rate", 0),
-                "no_show_rate": turnover_data.get("summary", {}).get("overall_no_show_rate", 0),
-                "drug_utilization_rate": drug_data.get("summary", {}).get("overall_utilization_rate", 0),
-                "referral_completion_rate": referral_data.get("summary", {}).get("overall_completion_rate", 0),
+                "total_appointments": turnover_summary.get("total_appointments", 0),
+                "completion_rate": turnover_summary.get("overall_completion_rate", 0),
+                "no_show_rate": turnover_summary.get("overall_no_show_rate", 0),
+                "drug_utilization_rate": drug_summary.get("overall_utilization_rate", 0),
+                "referral_completion_rate": referral_summary.get("overall_completion_rate", 0),
             },
             "today": today_data.get("summary", {}),
             "trends": {
@@ -1208,6 +1217,8 @@ class ReportService:
                 "drug_utilization_rates": drug_data.get("trends", {}).get("utilization_rates", []) if drug_data.get("trends") else [],
             }
         }
+
+        return result
 
     def export_report(
         self,

@@ -64,6 +64,7 @@ class BatchRescheduleRequest(BaseModel):
     strategy: RescheduleStrategy = Field(default=RescheduleStrategy.PRIORITY_FIRST, description="重排策略")
     target_date: Optional[date] = Field(default=None, description="目标日期")
     target_hospital_id: Optional[int] = Field(default=None, description="目标院区ID")
+    new_equipment_id: Optional[int] = Field(default=None, description="优先设备ID")
     allow_cross_hospital: bool = Field(default=True, description="是否允许跨院区")
     notify_patient: bool = Field(default=True, description="是否通知患者")
     notify_hospital: bool = Field(default=True, description="是否通知院区")
@@ -85,16 +86,19 @@ class EquipmentDowntimeRequest(BaseModel):
 
 
 class DrugDelayRequest(BaseModel):
-    tracer_batch_id: int = Field(..., description="药物批次ID")
-    hospital_id: int = Field(..., description="院区ID")
-    tracer_id: int = Field(..., description="示踪剂ID")
-    expected_delay_minutes: int = Field(..., gt=0, description="预计延迟(分钟)")
+    tracer_batch_id: Optional[int] = Field(default=None, description="药物批次ID")
+    hospital_id: Optional[int] = Field(default=None, description="院区ID")
+    tracer_id: Optional[int] = Field(default=None, description="示踪剂ID")
+    expected_delay_minutes: int = Field(default=60, gt=0, description="预计延迟(分钟)")
     new_arrival_time: Optional[datetime] = Field(default=None, description="新到货时间")
-    reason: str = Field(..., max_length=255, description="延迟原因")
+    reason: str = Field(default="药物到货延迟", max_length=255, description="延迟原因")
     affected_appointment_ids: Optional[List[int]] = Field(default=None, description="受影响预约ID列表")
+    affected_hospital_ids: Optional[List[int]] = Field(default=None, description="受影响院区ID列表")
+    affected_date: Optional[str] = Field(default=None, description="受影响日期")
     auto_reschedule: bool = Field(default=True, description="是否自动改期")
     reschedule_strategy: RescheduleStrategy = Field(default=RescheduleStrategy.MINIMIZE_IMPACT, description="改期策略")
     shift_injection_times: bool = Field(default=True, description="是否顺延注射时间")
+    notify_patients: bool = Field(default=True, description="是否通知患者")
     operator: Optional[str] = Field(default=None, description="操作人")
     notes: Optional[str] = Field(default=None, description="备注")
 

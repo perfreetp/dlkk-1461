@@ -81,7 +81,7 @@ def get_available_slots(
         tracer_type=tracer_type,
         needs_anesthesia=needs_anesthesia
     )
-    return ApiResponse(data={"slots": slots, "total": len(slots)})
+    return ApiResponse(data=slots)
 
 
 @router.get("/tracer/windows/{hospital_id}/{target_date}", response_model=ApiResponse)

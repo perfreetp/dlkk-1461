@@ -51,7 +51,7 @@ def handle_drug_delay(
     )
 
 
-@router.post("/emergency-plus", response_model=ApiResponse[BatchRescheduleResult])
+@router.post("/emergency-plus", response_model=ApiResponse)
 def handle_emergency_plus(
     request: EmergencyPlusRequest,
     db: Session = Depends(get_db),

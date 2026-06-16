@@ -148,69 +148,87 @@ class StatusService:
     def record_injection(self, request: InjectionRequest) -> Appointment:
         """
         记录示踪剂注射
-        验证：批次有效性、剂量计算、注射窗口期
+        支持两种模式：
+        1. 基础提交：仅appointment_id，更新到injected并返回关键时间点
+        2. 完整药物批次提交：带批次号和剂量，校验批次有效性和剩余活度
         """
         appointment = self._get_appointment(request.appointment_id)
         injection_time = request.injection_time or datetime.utcnow()
+        effective_dose = request.get_effective_dose_mbq()
+        effective_site = request.get_effective_injection_site()
+        effective_recorded_by = request.get_effective_recorded_by()
 
-        tracer_batch = self.db.query(TracerBatch).filter(
-            TracerBatch.batch_no == request.tracer_batch_no
-        ).first()
+        tracer_batch = None
+        if request.tracer_batch_no:
+            tracer_batch = self.db.query(TracerBatch).filter(
+                TracerBatch.batch_no == request.tracer_batch_no
+            ).first()
 
-        if not tracer_batch:
-            raise ValidationError(f"示踪剂批次不存在: {request.tracer_batch_no}")
+            if not tracer_batch:
+                raise ValidationError(f"示踪剂批次不存在: {request.tracer_batch_no}")
 
-        if tracer_batch.is_expired():
-            raise ResourceNotAvailable(f"示踪剂批次已过期: {request.tracer_batch_no}")
+            if tracer_batch.is_expired():
+                raise ResourceNotAvailable(f"示踪剂批次已过期: {request.tracer_batch_no}")
 
-        if tracer_batch.remaining_activity < request.tracer_dose_mbq:
-            raise ResourceNotAvailable(
-                f"示踪剂活度不足，剩余: {tracer_batch.remaining_activity}MBq, "
-                f"需要: {request.tracer_dose_mbq}MBq"
-            )
+            if effective_dose and tracer_batch.remaining_activity < effective_dose:
+                raise ResourceNotAvailable(
+                    f"示踪剂活度不足，剩余: {tracer_batch.remaining_activity}MBq, "
+                    f"需要: {effective_dose}MBq"
+                )
+        elif request.tracer_id:
+            from app.models import Tracer
+            tracer_obj = self.db.query(Tracer).filter(Tracer.id == request.tracer_id).first()
+            if tracer_obj:
+                tracer_batch = self.db.query(TracerBatch).filter(
+                    TracerBatch.tracer_id == tracer_obj.id,
+                    TracerBatch.status == "available"
+                ).first()
 
         self._update_appointment_status(appointment, "injected", injection_time)
         appointment.injection_time = injection_time
-        appointment.tracer_dose_mbq = request.tracer_dose_mbq
+
+        if effective_dose:
+            appointment.tracer_dose_mbq = effective_dose
 
         if request.blood_glucose is not None:
             appointment.blood_glucose = request.blood_glucose
 
-        tracer_batch.remaining_activity -= request.tracer_dose_mbq
-        if tracer_batch.remaining_activity <= 0:
-            tracer_batch.status = "used_up"
+        if tracer_batch and effective_dose:
+            tracer_batch.remaining_activity -= effective_dose
+            if tracer_batch.remaining_activity <= 0:
+                tracer_batch.status = "used_up"
 
-        tracer_usage = TracerUsage(
-            appointment_id=appointment.id,
-            tracer_id=tracer_batch.tracer_id,
-            tracer_batch_id=tracer_batch.id,
-            batch_no=request.tracer_batch_no,
-            tracer_type=request.tracer_type,
-            dose_mbq=request.tracer_dose_mbq,
-            injection_time=injection_time,
-            injection_site=request.tracer_injection_site,
-            administered_by=request.administered_by,
-            remaining_activity=request.remaining_activity,
-            waste_activity=request.waste_activity
-        )
-        self.db.add(tracer_usage)
-
-        if request.waste_activity and request.waste_activity > 0:
-            drug_waste = DrugWasteRecord(
-                hospital_id=appointment.hospital_id,
+            tracer_usage = TracerUsage(
+                appointment_id=appointment.id,
                 tracer_id=tracer_batch.tracer_id,
                 tracer_batch_id=tracer_batch.id,
-                waste_activity_mbq=request.waste_activity,
-                waste_reason="injection_residue",
-                recorded_at=injection_time,
-                recorded_by=request.administered_by or request.recorded_by
+                batch_no=tracer_batch.batch_no,
+                tracer_type=request.tracer_type,
+                dose_mbq=effective_dose,
+                injection_time=injection_time,
+                injection_site=effective_site,
+                administered_by=request.administered_by,
+                remaining_activity=request.remaining_activity,
+                waste_activity=request.waste_activity
             )
-            self.db.add(drug_waste)
+            self.db.add(tracer_usage)
+
+            if request.waste_activity and request.waste_activity > 0:
+                drug_waste = DrugWasteRecord(
+                    hospital_id=appointment.hospital_id,
+                    tracer_id=tracer_batch.tracer_id,
+                    tracer_batch_id=tracer_batch.id,
+                    waste_activity_mbq=request.waste_activity,
+                    waste_reason="injection_residue",
+                    recorded_at=injection_time,
+                    recorded_by=request.administered_by or effective_recorded_by
+                )
+                self.db.add(drug_waste)
 
         extra_fields = {
-            "tracer_batch_no": request.tracer_batch_no,
-            "tracer_dose_mbq": request.tracer_dose_mbq,
-            "tracer_injection_site": request.tracer_injection_site,
+            "tracer_batch_no": request.tracer_batch_no or (tracer_batch.batch_no if tracer_batch else None),
+            "tracer_dose_mbq": effective_dose,
+            "tracer_injection_site": effective_site,
             "blood_glucose": request.blood_glucose
         }
 
@@ -220,7 +238,7 @@ class StatusService:
             status_code="INJECTED",
             status_name="示踪剂注射",
             occurred_at=injection_time,
-            recorded_by=request.recorded_by,
+            recorded_by=effective_recorded_by,
             notes=request.notes,
             **extra_fields
         )
@@ -229,7 +247,7 @@ class StatusService:
 
         logger.info(
             f"示踪剂注射完成: 预约={appointment.appointment_no}, "
-            f"批次={request.tracer_batch_no}, 剂量={request.tracer_dose_mbq}MBq"
+            f"批次={request.tracer_batch_no or '无'}, 剂量={effective_dose or '无'}MBq"
         )
 
         self.db.commit()
@@ -330,7 +348,7 @@ class StatusService:
         patient = appointment.patient
         if patient:
             patient.consecutive_no_show = 0
-            patient.total_exams += 1
+            patient.total_completed = (patient.total_completed or 0) + 1
 
         self.db.commit()
 
