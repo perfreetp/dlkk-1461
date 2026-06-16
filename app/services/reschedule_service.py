@@ -123,12 +123,19 @@ class RescheduleService:
         if not hospital_id and request.affected_hospital_ids:
             hospital_id = request.affected_hospital_ids[0]
 
-        affected_appointments = self._find_affected_by_drug_delay(
-            hospital_id=hospital_id or 0,
-            tracer_id=request.tracer_id or 0,
-            expected_delay_minutes=request.expected_delay_minutes,
-            affected_appointment_ids=request.affected_appointment_ids
-        )
+        has_explicit_ids = request.affected_appointment_ids and len(request.affected_appointment_ids) > 0
+
+        if has_explicit_ids:
+            affected_appointments = self.db.query(Appointment).filter(
+                Appointment.id.in_(request.affected_appointment_ids)
+            ).all()
+        else:
+            affected_appointments = self._find_affected_by_drug_delay(
+                hospital_id=hospital_id or 0,
+                tracer_id=request.tracer_id or 0,
+                expected_delay_minutes=request.expected_delay_minutes,
+                affected_appointment_ids=None
+            )
 
         logger.warning(
             f"药物到货延迟: 批次={tracer_batch.batch_no if tracer_batch else '无'}, "
@@ -145,15 +152,23 @@ class RescheduleService:
                 request.operator
             )
 
-        if request.auto_reschedule and affected_appointments:
+        if request.auto_reschedule:
+            target_date = request.target_date
+            if not target_date:
+                target_date = request.affected_date
+            if not target_date and request.expected_delay_minutes and request.expected_delay_minutes > 120:
+                target_date = date.today() + timedelta(days=1)
+
             batch_request = BatchRescheduleRequest(
-                appointment_ids=[a.id for a in affected_appointments],
+                appointment_ids=list(request.affected_appointment_ids) if has_explicit_ids else [a.id for a in affected_appointments],
                 hospital_id=hospital_id,
-                affected_date=date.today(),
+                target_hospital_id=request.target_hospital_id,
+                affected_date=request.affected_date or date.today(),
+                target_date=target_date,
                 reason=RescheduleReason.DRUG_DELAY,
                 reason_detail=request.reason,
                 strategy=request.reschedule_strategy,
-                allow_cross_hospital=True,
+                allow_cross_hospital=request.allow_cross_hospital if hasattr(request, 'allow_cross_hospital') else True,
                 notify_patient=request.notify_patients if hasattr(request, 'notify_patients') else True,
                 notify_hospital=True,
                 operator=request.operator,
@@ -429,6 +444,8 @@ class RescheduleService:
         old_date = appointment.appointment_date
         old_time_slot = appointment.time_slot
         old_hospital_id = appointment.hospital_id
+        old_queue_number = appointment.queue_number
+        old_equipment_id = appointment.equipment_id
 
         if appointment.status in ["completed", "cancelled", "scanning", "injected"]:
             return RescheduleResult(
@@ -436,10 +453,13 @@ class RescheduleService:
                 appointment_no=appointment.appointment_no,
                 patient_name=appointment.patient.name if appointment.patient else "未知",
                 success=False,
+                status="skipped",
                 message=f"当前状态 {appointment.status} 不支持重排",
                 old_date=old_date,
                 old_time_slot=old_time_slot,
                 old_hospital_id=old_hospital_id,
+                old_queue_number=old_queue_number,
+                old_equipment_id=old_equipment_id,
                 errors=[f"状态不允许重排: {appointment.status}"]
             )
 
@@ -468,10 +488,13 @@ class RescheduleService:
                 appointment_no=appointment.appointment_no,
                 patient_name=appointment.patient.name if appointment.patient else "未知",
                 success=False,
+                status="failed",
                 message="无法分配资源",
                 old_date=old_date,
                 old_time_slot=old_time_slot,
                 old_hospital_id=old_hospital_id,
+                old_queue_number=old_queue_number,
+                old_equipment_id=old_equipment_id,
                 errors=allocation.get("warnings", [])
             )
 
@@ -500,15 +523,19 @@ class RescheduleService:
             appointment_no=appointment.appointment_no,
             patient_name=appointment.patient.name if appointment.patient else "未知",
             success=True,
+            status="success",
             message="重排成功",
             old_date=old_date,
             old_time_slot=old_time_slot,
             old_hospital_id=old_hospital_id,
+            old_queue_number=old_queue_number,
+            old_equipment_id=old_equipment_id,
             new_date=allocation["appointment_date"],
             new_time_slot=allocation["time_slot"],
             new_hospital_id=allocation["hospital_id"],
             new_hospital_name=new_hospital.name if new_hospital else None,
             new_queue_number=allocation["queue_number"],
+            new_equipment_id=allocation.get("equipment_id"),
             notification_sent=request.notify_patient and not request.dry_run
         )
 
