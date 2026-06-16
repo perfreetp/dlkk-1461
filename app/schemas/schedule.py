@@ -1,6 +1,15 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, date, time
 from pydantic import BaseModel, Field
+from enum import Enum
+
+
+class TemplateType(str, Enum):
+    WORKDAY = "workday"
+    WEEKEND = "weekend"
+    HOLIDAY = "holiday"
+    SPECIAL = "special"
+    NORMAL = "normal"
 
 
 class ScheduleTemplateBase(BaseModel):
@@ -139,3 +148,43 @@ class SupportPlanResponse(SupportPlanBase):
 
     class Config:
         from_attributes = True
+
+
+class ShiftSwapRequest(BaseModel):
+    shift_id: int = Field(..., description="需要换班的排班ID")
+    target_user_id: int = Field(..., description="目标换班人员ID")
+    reason: str = Field(..., max_length=255, description="换班原因")
+    preferred_date: Optional[date] = Field(default=None, description="期望换班日期")
+    notes: Optional[str] = Field(default=None, description="备注")
+
+
+class ShiftSwapApproveRequest(BaseModel):
+    swap_id: int = Field(..., description="换班申请ID")
+    approved: bool = Field(..., description="是否批准")
+    approver_notes: Optional[str] = Field(default=None, max_length=255, description="审批意见")
+
+
+class SupportPlanApproveRequest(BaseModel):
+    plan_id: int = Field(..., description="支援方案ID")
+    approved: bool = Field(..., description="是否批准")
+    approver: str = Field(..., max_length=50, description="审批人")
+    approver_notes: Optional[str] = Field(default=None, max_length=255, description="审批意见")
+
+
+class HolidayTemplateGenerateRequest(BaseModel):
+    holiday_name: str = Field(..., max_length=100, description="节假日名称")
+    start_date: date = Field(..., description="开始日期")
+    end_date: date = Field(..., description="结束日期")
+    hospital_ids: Optional[List[int]] = Field(default=None, description="院区ID列表，空表示全部")
+    template_type: TemplateType = Field(default=TemplateType.HOLIDAY, description="模板类型")
+    capacity_factor: float = Field(default=0.5, ge=0, le=1, description="容量系数")
+    staff_reduction: int = Field(default=0, ge=0, description="人员减少数量")
+
+
+class WeeklyScheduleGenerateRequest(BaseModel):
+    hospital_id: int = Field(..., description="院区ID")
+    week_start_date: date = Field(..., description="周开始日期")
+    template_id: Optional[int] = Field(default=None, description="使用的模板ID")
+    include_weekend: bool = Field(default=True, description="是否包含周末")
+    auto_assign_staff: bool = Field(default=True, description="是否自动分配人员")
+    notify_staff: bool = Field(default=False, description="是否通知人员")

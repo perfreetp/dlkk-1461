@@ -175,6 +175,28 @@ class AppointmentService:
             raise AppointmentNotFound(str(appointment_id))
         return appointment
 
+    def get_appointment_by_id(self, appointment_id: int) -> Appointment:
+        """获取预约详情（路由调用的方法名）"""
+        return self.get_appointment(appointment_id)
+
+    def _get_patient(self, patient_id: int) -> Patient:
+        """获取患者信息"""
+        patient = self.db.query(Patient).filter(Patient.id == patient_id).first()
+        if not patient:
+            raise ValidationError(f"患者不存在: {patient_id}")
+        return patient
+
+    def get_appointments(
+        self,
+        query_params: AppointmentQueryParams,
+        offset: int = 0,
+        limit: int = 20
+    ) -> Tuple[List[Appointment], int]:
+        """查询预约列表（路由调用的方法名）"""
+        page = offset // limit + 1
+        page_size = limit
+        return self.list_appointments(query_params, page, page_size)
+
     def list_appointments(
         self,
         params: AppointmentQueryParams,
@@ -433,6 +455,59 @@ class AppointmentService:
             base_wait = int(base_wait * 1.2)
 
         return min(base_wait, 480)
+
+    def update_status(
+        self,
+        appointment_id: int,
+        status: AppointmentStatus,
+        reason: Optional[str] = None,
+        operator: Optional[str] = None
+    ) -> Appointment:
+        """更新预约状态"""
+        appointment = self.get_appointment(appointment_id)
+        appointment.status = status
+        appointment.status_changed_at = datetime.utcnow()
+        if reason:
+            appointment.cancellation_reason = reason
+        if operator:
+            appointment.cancelled_by = operator
+
+        self.db.commit()
+        self.db.refresh(appointment)
+        logger.info(f"更新预约状态: {appointment.appointment_no} -> {status}")
+        return appointment
+
+    def get_daily_statistics(
+        self,
+        hospital_id: Optional[int] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """获取预约每日统计"""
+        query = self.db.query(Appointment)
+
+        if hospital_id:
+            query = query.filter(Appointment.hospital_id == hospital_id)
+        if start_date:
+            query = query.filter(Appointment.appointment_date >= start_date)
+        if end_date:
+            query = query.filter(Appointment.appointment_date <= end_date)
+
+        appointments = query.all()
+
+        stats = {
+            "total": len(appointments),
+            "pending": sum(1 for a in appointments if a.status == "pending"),
+            "confirmed": sum(1 for a in appointments if a.status == "confirmed"),
+            "checked_in": sum(1 for a in appointments if a.status == "checked_in"),
+            "injected": sum(1 for a in appointments if a.status == "injected"),
+            "scanning": sum(1 for a in appointments if a.status == "scanning"),
+            "completed": sum(1 for a in appointments if a.status == "completed"),
+            "cancelled": sum(1 for a in appointments if a.status == "cancelled"),
+            "no_show": sum(1 for a in appointments if a.status == "no_show"),
+        }
+
+        return stats
 
     def _determine_special_handling(
         self,

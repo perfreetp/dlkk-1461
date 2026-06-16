@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import date, datetime
 from pydantic import BaseModel, Field
 
@@ -89,6 +89,56 @@ class PatientResponse(PatientBase):
     status: str
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PatientQueryParams(BaseModel):
+    hospital_id: Optional[int] = Field(default=None, description="院区ID")
+    keyword: Optional[str] = Field(default=None, max_length=100, description="关键词搜索")
+    medical_record_no: Optional[str] = Field(default=None, max_length=50, description="病历号")
+    id_card_no: Optional[str] = Field(default=None, max_length=20, description="身份证号")
+    phone: Optional[str] = Field(default=None, max_length=20, description="联系电话")
+    is_inpatient: Optional[bool] = Field(default=None, description="是否住院")
+    needs_anesthesia: Optional[bool] = Field(default=None, description="是否需要麻醉")
+    status: Optional[str] = Field(default=None, max_length=20, description="状态")
+    has_diabetes: Optional[bool] = Field(default=None, description="是否糖尿病")
+    has_allergy: Optional[bool] = Field(default=None, description="是否有过敏史")
+    high_risk_only: bool = Field(default=False, description="仅显示高风险")
+    consecutive_no_show_min: Optional[int] = Field(default=None, ge=0, description="最小连续爽约次数")
+    start_date: Optional[date] = Field(default=None, description="开始日期")
+    end_date: Optional[date] = Field(default=None, description="结束日期")
+
+
+class PatientRiskAssessment(BaseModel):
+    patient_id: int
+    risk_level: str = Field(..., description="风险等级: low/medium/high/critical")
+    risk_score: int = Field(..., description="风险评分 0-100")
+    risk_factors: List[str] = Field(..., description="风险因素列表")
+    consecutive_no_show: int
+    appointment_count_last_30_days: int
+    no_show_count_last_30_days: int
+    average_wait_time_minutes: Optional[float]
+    recommendations: List[str]
+    assessment_time: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class HighRiskPatient(BaseModel):
+    patient_id: int
+    patient_name: str
+    medical_record_no: Optional[str]
+    risk_level: str
+    risk_score: int
+    risk_type: str
+    risk_detail: str
+    last_appointment_date: Optional[date]
+    next_appointment_date: Optional[date]
+    alert_count_last_30_days: int
+    action_required: str
 
     class Config:
         from_attributes = True

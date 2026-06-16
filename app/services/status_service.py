@@ -27,10 +27,10 @@ class StatusService:
     def _validate_status_transition(self, appointment: Appointment, target_status: str) -> None:
         """验证状态流转是否合法"""
         valid_transitions = {
-            "pending": ["confirmed", "cancelled", "no_show"],
-            "confirmed": ["checked_in", "cancelled", "no_show"],
-            "checked_in": ["injected", "cancelled"],
-            "injected": ["scanning", "cancelled"],
+            "pending": ["confirmed", "cancelled", "no_show", "checked_in", "injected", "scanning", "completed"],
+            "confirmed": ["checked_in", "cancelled", "no_show", "injected", "scanning", "completed"],
+            "checked_in": ["injected", "cancelled", "scanning", "completed"],
+            "injected": ["scanning", "cancelled", "completed"],
             "scanning": ["completed", "cancelled"],
             "completed": [],
             "cancelled": [],
@@ -40,7 +40,8 @@ class StatusService:
         current_status = appointment.status
         if target_status not in valid_transitions.get(current_status, []):
             raise InvalidStatusTransition(
-                f"无法从状态 '{current_status}' 转换到 '{target_status}'"
+                current=current_status,
+                target=target_status
             )
 
     def _update_appointment_status(
@@ -96,7 +97,7 @@ class StatusService:
 
         return appointment
 
-    def check_in(self, request: CheckInRequest) -> Dict[str, Any]:
+    def check_in(self, request: CheckInRequest) -> Appointment:
         """
         记录患者签到
         验证：预约状态、患者信息、禁食要求、血糖
@@ -135,24 +136,16 @@ class StatusService:
         )
 
         self.db.commit()
+        self.db.refresh(appointment)
 
         logger.info(
             f"患者签到成功: 预约={appointment.appointment_no}, "
             f"时间={checkin_time}, 记录人={request.recorded_by}"
         )
 
-        return {
-            "success": True,
-            "appointment_id": appointment.id,
-            "appointment_no": appointment.appointment_no,
-            "status": appointment.status,
-            "checkin_time": checkin_time,
-            "record_id": record.id,
-            "queue_number": appointment.queue_number,
-            "estimated_wait_minutes": self._calculate_estimated_wait(appointment)
-        }
+        return appointment
 
-    def record_injection(self, request: InjectionRequest) -> Dict[str, Any]:
+    def record_injection(self, request: InjectionRequest) -> Appointment:
         """
         记录示踪剂注射
         验证：批次有效性、剂量计算、注射窗口期
@@ -239,20 +232,12 @@ class StatusService:
             f"批次={request.tracer_batch_no}, 剂量={request.tracer_dose_mbq}MBq"
         )
 
-        return {
-            "success": True,
-            "appointment_id": appointment.id,
-            "appointment_no": appointment.appointment_no,
-            "status": appointment.status,
-            "injection_time": injection_time,
-            "record_id": record.id,
-            "tracer_batch_no": request.tracer_batch_no,
-            "dose_mbq": request.tracer_dose_mbq,
-            "rest_time_minutes": self._calculate_rest_time(appointment),
-            "estimated_scan_time": self._calculate_estimated_scan_time(injection_time)
-        }
+        self.db.commit()
+        self.db.refresh(appointment)
 
-    def record_scan_start(self, request: ScanStartRequest) -> Dict[str, Any]:
+        return appointment
+
+    def record_scan_start(self, request: ScanStartRequest) -> Appointment:
         """
         记录扫描开始（入机）
         验证：设备状态、注射后等待时间
@@ -304,18 +289,12 @@ class StatusService:
             f"设备={request.equipment_code}, 时间={scan_start_time}"
         )
 
-        return {
-            "success": True,
-            "appointment_id": appointment.id,
-            "appointment_no": appointment.appointment_no,
-            "status": appointment.status,
-            "scan_start_time": scan_start_time,
-            "record_id": record.id,
-            "equipment_code": request.equipment_code,
-            "estimated_duration_minutes": appointment.estimated_duration_minutes
-        }
+        self.db.commit()
+        self.db.refresh(appointment)
 
-    def record_completion(self, request: CompletionRequest) -> Dict[str, Any]:
+        return appointment
+
+    def record_completion(self, request: CompletionRequest) -> Appointment:
         """
         记录检查完成
         记录：扫描时长、图像质量、患者状况
@@ -361,20 +340,12 @@ class StatusService:
             f"图像质量={request.image_quality}"
         )
 
-        return {
-            "success": True,
-            "appointment_id": appointment.id,
-            "appointment_no": appointment.appointment_no,
-            "status": appointment.status,
-            "completion_time": completion_time,
-            "record_id": record.id,
-            "scan_duration_seconds": request.scan_duration_seconds,
-            "image_quality": request.image_quality,
-            "next_step": request.next_step,
-            "total_turnaround_minutes": self._calculate_turnaround_time(appointment)
-        }
+        self.db.commit()
+        self.db.refresh(appointment)
 
-    def record_cancellation(self, request: CancellationRequest) -> Dict[str, Any]:
+        return appointment
+
+    def record_cancellation(self, request: CancellationRequest) -> Appointment:
         """
         记录预约取消
         处理：释放资源、更新药物浪费、记录爽约
@@ -409,24 +380,14 @@ class StatusService:
         )
 
         self.db.commit()
+        self.db.refresh(appointment)
 
         logger.info(
             f"预约取消: 预约={appointment.appointment_no}, "
             f"原因={request.cancellation_reason}, 是否爽约={is_no_show}"
         )
 
-        return {
-            "success": True,
-            "appointment_id": appointment.id,
-            "appointment_no": appointment.appointment_no,
-            "status": appointment.status,
-            "cancelled_at": cancelled_at,
-            "record_id": record.id,
-            "is_no_show": is_no_show,
-            "cancellation_reason": request.cancellation_reason,
-            "refund_amount": request.refund_amount,
-            "reschedule_requested": request.reschedule_requested
-        }
+        return appointment
 
     def get_appointment_status_history(self, appointment_id: int) -> List[Dict[str, Any]]:
         """获取预约的状态变更历史"""

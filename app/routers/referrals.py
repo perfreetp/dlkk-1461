@@ -9,7 +9,8 @@ from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.referral import (
     ReferralCreate, ReferralUpdate, ReferralResponse,
     ReferralAutoAssignRequest, ReferralAutoAssignResponse,
-    ReferralQueryParams, ReferralStatus, ReferralNetworkStatus
+    ReferralQueryParams, ReferralStatus, ReferralNetworkStatus,
+    ReferralAcceptRequest, ReferralRejectRequest, ReferralCompleteRequest
 )
 from app.services import ReferralService
 from app.utils.auth import get_current_active_user

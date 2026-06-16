@@ -34,14 +34,15 @@ def get_turnover_efficiency_report(
 ):
     """生成周转效率报表"""
     service = ReportService(db)
-    report = service.generate_turnover_efficiency_report(
+    params = ReportQueryParams(
+        report_type=ReportType.TURNOVER_EFFICIENCY,
         hospital_id=hospital_id,
         start_date=start_date,
         end_date=end_date,
         granularity=granularity,
-        include_details=include_details,
-        compare_with_previous_period=compare_with_previous_period
+        include_details=include_details
     )
+    report = service.generate_turnover_efficiency_report(params)
     return ApiResponse(data=report, message="周转效率报表生成成功")
 
 
@@ -58,14 +59,15 @@ def get_drug_utilization_report(
 ):
     """生成药物利用率报表"""
     service = ReportService(db)
-    report = service.generate_drug_utilization_report(
+    params = ReportQueryParams(
+        report_type=ReportType.DRUG_UTILIZATION,
         hospital_id=hospital_id,
         start_date=start_date,
         end_date=end_date,
         granularity=granularity,
-        include_details=include_details,
-        compare_with_previous_period=compare_with_previous_period
+        include_details=include_details
     )
+    report = service.generate_drug_utilization_report(params)
     return ApiResponse(data=report, message="药物利用率报表生成成功")
 
 
@@ -82,14 +84,15 @@ def get_referral_completion_report(
 ):
     """生成转诊完成率报表"""
     service = ReportService(db)
-    report = service.generate_referral_completion_report(
+    params = ReportQueryParams(
+        report_type=ReportType.REFERRAL_COMPLETION,
         hospital_id=hospital_id,
         start_date=start_date,
         end_date=end_date,
         granularity=granularity,
-        include_details=include_details,
-        compare_with_previous_period=compare_with_previous_period
+        include_details=include_details
     )
+    report = service.generate_referral_completion_report(params)
     return ApiResponse(data=report, message="转诊完成率报表生成成功")
 
 
@@ -105,13 +108,15 @@ def get_daily_operation_report(
 ):
     """生成每日运营报表"""
     service = ReportService(db)
-    report = service.generate_daily_operation_report(
+    params = ReportQueryParams(
+        report_type=ReportType.DAILY_OPERATION,
         hospital_id=hospital_id,
         start_date=start_date,
         end_date=end_date,
         granularity=granularity,
         include_details=include_details
     )
+    report = service.generate_daily_operation_report(params)
     return ApiResponse(data=report, message="每日运营报表生成成功")
 
 
@@ -125,11 +130,14 @@ def get_risk_analysis_report(
 ):
     """生成风险分析报表"""
     service = ReportService(db)
-    report = service.generate_risk_analysis_report(
+    params = ReportQueryParams(
+        report_type=ReportType.RISK_ANALYSIS,
         hospital_id=hospital_id,
         start_date=start_date,
-        end_date=end_date
+        end_date=end_date,
+        granularity="daily"
     )
+    report = service.generate_risk_analysis_report(params)
     return ApiResponse(data=report, message="风险分析报表生成成功")
 
 

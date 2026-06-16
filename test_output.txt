@@ -1,18 +1,14 @@
 Testing imports...
-ERROR: cannot import name 'AlertType' from 'app.schemas' (C:\TraeProjects\1461\app\schemas\__init__.py)
+ERROR: cannot import name 'RiskType' from 'app.schemas.alert' (C:\TraeProjects\1461\app\schemas\alert.py)
 Traceback (most recent call last):
   File "C:\TraeProjects\1461\test_app.py", line 10, in <module>
     from app.main import app
   File "C:\TraeProjects\1461\app\main.py", line 11, in <module>
     from app.routers import api_router
-  File "C:\TraeProjects\1461\app\routers\__init__.py", line 3, in <module>
-    from app.routers import auth, appointment, scheduling, status, reschedule, reports
-  File "C:\TraeProjects\1461\app\routers\appointment.py", line 16, in <module>
-    from app.services import AppointmentService, RescheduleService
-  File "C:\TraeProjects\1461\app\services\__init__.py", line 6, in <module>
-    from app.services.alert_service import AlertService
-  File "C:\TraeProjects\1461\app\services\alert_service.py", line 7, in <module>
-    from app.schemas import (
+  File "C:\TraeProjects\1461\app\routers\__init__.py", line 4, in <module>
+    from app.routers import alerts, notifications, schedule, referrals
+  File "C:\TraeProjects\1461\app\routers\alerts.py", line 9, in <module>
+    from app.schemas.alert import (
     ...<2 lines>...
     )
-ImportError: cannot import name 'AlertType' from 'app.schemas' (C:\TraeProjects\1461\app\schemas\__init__.py)
+ImportError: cannot import name 'RiskType' from 'app.schemas.alert' (C:\TraeProjects\1461\app\schemas\alert.py)

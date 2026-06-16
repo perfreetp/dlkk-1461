@@ -8,7 +8,7 @@ from app.models import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.alert import (
     AlertResponse, AlertQueryParams, AlertAcknowledgeRequest,
-    AlertResolveRequest, RiskType, SeverityLevel
+    AlertResolveRequest, AlertType, AlertSeverity
 )
 from app.services import AlertService
 from app.utils.auth import get_current_active_user, require_roles
@@ -58,7 +58,7 @@ def get_alert(
 @router.post("/scan", response_model=ApiResponse)
 def run_monitoring_scan(
     hospital_id: Optional[int] = None,
-    scan_types: Optional[List[RiskType]] = None,
+    scan_types: Optional[List[AlertType]] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(["admin", "supervisor"]))
 ):

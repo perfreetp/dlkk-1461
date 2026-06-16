@@ -8,7 +8,8 @@ from app.models import User, Equipment
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.equipment import (
     EquipmentCreate, EquipmentUpdate, EquipmentResponse,
-    EquipmentStatusUpdateRequest, MaintenanceRecordCreate, MaintenanceRecordResponse
+    EquipmentStatusUpdate, EquipmentStatusUpdateRequest,
+    MaintenanceRecordCreate, MaintenanceRecordResponse
 )
 from app.utils.auth import get_current_active_user, require_roles
 from app.utils.logger import get_logger

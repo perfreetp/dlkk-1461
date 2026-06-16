@@ -373,17 +373,17 @@ class ReportService:
                 and_(
                     DrugWasteRecord.hospital_id == hospital_id,
                     DrugWasteRecord.tracer_id == tracer_id,
-                    func.date(DrugWasteRecord.recorded_at) == stat_date
+                    DrugWasteRecord.waste_date == stat_date
                 )
             ).all()
 
             noshow_waste = sum(
-                w.waste_activity_mbq for w in waste_records
-                if w.waste_reason == "patient_no_show"
+                w.wasted_activity_mbq for w in waste_records
+                if w.waste_type == "patient_no_show"
             )
             expired_waste = sum(
-                w.waste_activity_mbq for w in waste_records
-                if w.waste_reason == "expired"
+                w.wasted_activity_mbq for w in waste_records
+                if w.waste_type == "expired"
             )
 
             avg_dose = total_used / len(tracer_usages) if tracer_usages else 0
@@ -419,19 +419,38 @@ class ReportService:
         granularity: str
     ) -> Optional[ReferralCompletionItem]:
         """计算单院区单日期的转诊完成数据"""
-        date_filter = self._get_date_filter(stat_date, granularity, "created_at")
+        if granularity == "daily":
+            date_filter_out = func.date(Referral.created_at) == stat_date
+            date_filter_in = func.date(Referral.created_at) == stat_date
+        elif granularity == "weekly":
+            week_start = stat_date - timedelta(days=stat_date.weekday())
+            week_end = week_start + timedelta(days=6)
+            date_filter_out = and_(
+                func.date(Referral.created_at) >= week_start,
+                func.date(Referral.created_at) <= week_end
+            )
+            date_filter_in = date_filter_out
+        elif granularity == "monthly":
+            date_filter_out = and_(
+                extract('year', Referral.created_at) == stat_date.year,
+                extract('month', Referral.created_at) == stat_date.month
+            )
+            date_filter_in = date_filter_out
+        else:
+            date_filter_out = func.date(Referral.created_at) == stat_date
+            date_filter_in = date_filter_out
 
         referrals_out = self.db.query(Referral).filter(
             and_(
                 Referral.source_hospital_id == hospital_id,
-                date_filter
+                date_filter_out
             )
         ).all()
 
         referrals_in = self.db.query(Referral).filter(
             and_(
                 Referral.target_hospital_id == hospital_id,
-                date_filter
+                date_filter_in
             )
         ).all()
 
@@ -707,7 +726,21 @@ class ReportService:
     ) -> Dict[str, Any]:
         """计算周转效率汇总"""
         if not items:
-            return {}
+            return {
+                "total_appointments": 0,
+                "total_completed": 0,
+                "total_no_show": 0,
+                "overall_completion_rate": 0.0,
+                "completion_rate": 0.0,
+                "overall_no_show_rate": 0.0,
+                "no_show_rate": 0.0,
+                "avg_wait_time_minutes": 0.0,
+                "avg_scan_time_minutes": 0.0,
+                "avg_turnover_minutes": 0.0,
+                "avg_equipment_utilization": 0.0,
+                "total_hospitals": 0,
+                "total_days": 0
+            }
 
         total_appointments = sum(i.total_appointments for i in items)
         total_completed = sum(i.completed_count for i in items)
@@ -718,7 +751,9 @@ class ReportService:
             "total_completed": total_completed,
             "total_no_show": total_no_show,
             "overall_completion_rate": safe_divide(total_completed, total_appointments),
+            "completion_rate": safe_divide(total_completed, total_appointments),
             "overall_no_show_rate": safe_divide(total_no_show, total_appointments),
+            "no_show_rate": safe_divide(total_no_show, total_appointments),
             "avg_wait_time_minutes": sum(i.avg_wait_time_minutes for i in items) / len(items),
             "avg_scan_time_minutes": sum(i.avg_scan_time_minutes for i in items) / len(items),
             "avg_turnover_minutes": sum(i.avg_turnover_minutes for i in items) / len(items),
@@ -734,7 +769,19 @@ class ReportService:
     ) -> Dict[str, Any]:
         """计算药物利用汇总"""
         if not items:
-            return {}
+            return {
+                "total_received_mbq": 0.0,
+                "total_used_mbq": 0.0,
+                "total_wasted_mbq": 0.0,
+                "overall_utilization_rate": 0.0,
+                "utilization_rate": 0.0,
+                "overall_waste_rate": 0.0,
+                "waste_rate": 0.0,
+                "total_patients": 0,
+                "total_cost_estimate": 0.0,
+                "total_waste_cost": 0.0,
+                "total_tracers": 0
+            }
 
         total_received = sum(i.total_received_mbq for i in items)
         total_used = sum(i.total_used_mbq for i in items)
@@ -746,7 +793,9 @@ class ReportService:
             "total_used_mbq": total_used,
             "total_wasted_mbq": total_wasted,
             "overall_utilization_rate": safe_divide(total_used, total_received),
+            "utilization_rate": safe_divide(total_used, total_received),
             "overall_waste_rate": safe_divide(total_wasted, total_received),
+            "waste_rate": safe_divide(total_wasted, total_received),
             "total_patients": total_patients,
             "total_cost_estimate": sum(i.cost_estimate for i in items),
             "total_waste_cost": sum(i.waste_cost for i in items),
@@ -760,7 +809,19 @@ class ReportService:
     ) -> Dict[str, Any]:
         """计算转诊完成汇总"""
         if not items:
-            return {}
+            return {
+                "total_referrals_out": 0,
+                "total_referrals_in": 0,
+                "total_referrals": 0,
+                "total_completed": 0,
+                "overall_completion_rate": 0.0,
+                "completion_rate": 0.0,
+                "overall_acceptance_rate": 0.0,
+                "acceptance_rate": 0.0,
+                "avg_response_time_minutes": 0.0,
+                "auto_assign_total": 0,
+                "auto_assign_acceptance_rate": 0.0
+            }
 
         total_out = sum(i.total_referrals_out for i in items)
         total_in = sum(i.total_referrals_in for i in items)
@@ -773,7 +834,9 @@ class ReportService:
             "total_referrals": total,
             "total_completed": total_completed,
             "overall_completion_rate": safe_divide(total_completed, total),
+            "completion_rate": safe_divide(total_completed, total),
             "overall_acceptance_rate": sum(i.acceptance_rate for i in items) / len(items),
+            "acceptance_rate": sum(i.acceptance_rate for i in items) / len(items),
             "avg_response_time_minutes": sum(i.avg_response_time_minutes for i in items) / len(items),
             "auto_assign_total": sum(i.auto_assign_count for i in items),
             "auto_assign_acceptance_rate": sum(i.auto_assign_acceptance_rate for i in items) / len(items) if items else 0
@@ -964,23 +1027,23 @@ class ReportService:
         """计算浪费原因分析"""
         waste_records = self.db.query(DrugWasteRecord).filter(
             and_(
-                func.date(DrugWasteRecord.recorded_at) >= params.start_date,
-                func.date(DrugWasteRecord.recorded_at) <= params.end_date,
+                DrugWasteRecord.waste_date >= params.start_date,
+                DrugWasteRecord.waste_date <= params.end_date,
                 (DrugWasteRecord.hospital_id == params.hospital_id) if params.hospital_id else True
             )
         ).all()
 
         reasons = {}
         for w in waste_records:
-            reason = w.waste_reason or "unknown"
+            reason = w.waste_type or "unknown"
             if reason not in reasons:
                 reasons[reason] = {"count": 0, "total_activity_mbq": 0}
             reasons[reason]["count"] += 1
-            reasons[reason]["total_activity_mbq"] += w.waste_activity_mbq
+            reasons[reason]["total_activity_mbq"] += w.wasted_activity_mbq
 
         return {
             "total_waste_records": len(waste_records),
-            "total_waste_activity_mbq": sum(w.waste_activity_mbq for w in waste_records),
+            "total_waste_activity_mbq": sum(w.wasted_activity_mbq for w in waste_records),
             "reasons": reasons,
             "top_reasons": sorted(
                 reasons.items(),
@@ -1082,3 +1145,170 @@ class ReportService:
             }
             for a in sorted_alerts[:10]
         ]
+
+    def get_kpi_dashboard(
+        self,
+        hospital_id: Optional[int] = None,
+        target_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """获取KPI仪表盘数据"""
+        target_date = target_date or date.today()
+        start_date = target_date - timedelta(days=6)
+        end_date = target_date
+
+        turnover_params = ReportQueryParams(
+            report_type="turnover_efficiency",
+            hospital_id=hospital_id,
+            start_date=start_date,
+            end_date=end_date,
+            granularity="daily"
+        )
+        turnover_data = self.generate_turnover_efficiency_report(turnover_params)
+
+        drug_params = ReportQueryParams(
+            report_type="drug_utilization",
+            hospital_id=hospital_id,
+            start_date=start_date,
+            end_date=end_date,
+            granularity="daily"
+        )
+        drug_data = self.generate_drug_utilization_report(drug_params)
+
+        referral_params = ReportQueryParams(
+            report_type="referral_completion",
+            hospital_id=hospital_id,
+            start_date=start_date,
+            end_date=end_date,
+            granularity="daily"
+        )
+        referral_data = self.generate_referral_completion_report(referral_params)
+
+        today_params = ReportQueryParams(
+            report_type="daily_operation",
+            hospital_id=hospital_id,
+            start_date=target_date,
+            end_date=target_date,
+            granularity="daily"
+        )
+        today_data = self.generate_daily_operation_report(today_params)
+
+        return {
+            "date": target_date,
+            "hospital_id": hospital_id,
+            "last_7_days": {
+                "total_appointments": turnover_data.get("summary", {}).get("total_appointments", 0),
+                "completion_rate": turnover_data.get("summary", {}).get("overall_completion_rate", 0),
+                "no_show_rate": turnover_data.get("summary", {}).get("overall_no_show_rate", 0),
+                "drug_utilization_rate": drug_data.get("summary", {}).get("overall_utilization_rate", 0),
+                "referral_completion_rate": referral_data.get("summary", {}).get("overall_completion_rate", 0),
+            },
+            "today": today_data.get("summary", {}),
+            "trends": {
+                "completion_rates": turnover_data.get("trends", {}).get("completion_rates", []) if turnover_data.get("trends") else [],
+                "drug_utilization_rates": drug_data.get("trends", {}).get("utilization_rates", []) if drug_data.get("trends") else [],
+            }
+        }
+
+    def export_report(
+        self,
+        params: ReportExportRequest
+    ) -> Dict[str, Any]:
+        """导出报表"""
+        report_params = ReportQueryParams(
+            report_type=params.report_type,
+            hospital_id=params.hospital_id,
+            start_date=params.start_date,
+            end_date=params.end_date,
+            granularity=params.granularity,
+            include_details=True
+        )
+
+        report_data = self.generate_report(report_params)
+
+        return {
+            "export_format": params.export_format,
+            "report_type": params.report_type,
+            "total_records": len(report_data.get("items", [])),
+            "data": report_data,
+            "export_time": datetime.utcnow()
+        }
+
+    def get_hospital_comparison_report(
+        self,
+        start_date: date,
+        end_date: date,
+        metric_type: str = "turnover"
+    ) -> Dict[str, Any]:
+        """获取院区对比报表"""
+        if metric_type == "turnover":
+            report_type = "turnover_efficiency"
+        elif metric_type == "drug":
+            report_type = "drug_utilization"
+        elif metric_type == "referral":
+            report_type = "referral_completion"
+        else:
+            report_type = "turnover_efficiency"
+
+        params = ReportQueryParams(
+            report_type=report_type,
+            hospital_id=None,
+            start_date=start_date,
+            end_date=end_date,
+            granularity="daily"
+        )
+
+        report_data = self.generate_report(params)
+
+        return {
+            "metric_type": metric_type,
+            "start_date": start_date,
+            "end_date": end_date,
+            "hospital_comparison": report_data.get("hospital_comparison", {}),
+            "items": report_data.get("items", [])
+        }
+
+    def get_trend_data(
+        self,
+        hospital_id: Optional[int] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        metric: str = "completion_rate"
+    ) -> Dict[str, Any]:
+        """获取趋势数据"""
+        end_date = end_date or date.today()
+        start_date = start_date or (end_date - timedelta(days=29))
+
+        params = ReportQueryParams(
+            report_type="turnover_efficiency",
+            hospital_id=hospital_id,
+            start_date=start_date,
+            end_date=end_date,
+            granularity="daily"
+        )
+
+        report_data = self.generate_turnover_efficiency_report(params)
+        items = report_data.get("items", [])
+
+        trend_data = []
+        for item in items:
+            if metric == "completion_rate":
+                value = item.completion_rate if hasattr(item, 'completion_rate') else 0
+            elif metric == "no_show_rate":
+                value = item.no_show_rate if hasattr(item, 'no_show_rate') else 0
+            elif metric == "avg_wait_time":
+                value = item.avg_wait_time_minutes if hasattr(item, 'avg_wait_time_minutes') else 0
+            else:
+                value = 0
+
+            trend_data.append({
+                "date": item.stat_date,
+                "value": value
+            })
+
+        return {
+            "metric": metric,
+            "start_date": start_date,
+            "end_date": end_date,
+            "hospital_id": hospital_id,
+            "trend_data": trend_data
+        }

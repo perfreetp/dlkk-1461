@@ -77,3 +77,57 @@ class HospitalNotFound(SchedulerException):
             detail=f"院区不存在: {hospital_id}",
             code="hospital_not_found"
         )
+
+
+class EquipmentNotFound(SchedulerException):
+    def __init__(self, equipment_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"设备不存在: {equipment_id}",
+            code="equipment_not_found"
+        )
+
+
+class ResourceNotFound(SchedulerException):
+    def __init__(self, resource_type: str, resource_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"{resource_type} 不存在: {resource_id}",
+            code="resource_not_found"
+        )
+
+
+class PatientNotFound(SchedulerException):
+    def __init__(self, patient_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"患者不存在: {patient_id}",
+            code="patient_not_found"
+        )
+
+
+class TracerNotFound(SchedulerException):
+    def __init__(self, tracer_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"示踪剂不存在: {tracer_id}",
+            code="tracer_not_found"
+        )
+
+
+class UserNotFound(SchedulerException):
+    def __init__(self, user_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"用户不存在: {user_id}",
+            code="user_not_found"
+        )
+
+
+class ReferralNotFound(SchedulerException):
+    def __init__(self, referral_id: str):
+        super().__init__(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"转诊记录不存在: {referral_id}",
+            code="referral_not_found"
+        )

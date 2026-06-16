@@ -1,8 +1,10 @@
+from typing import Any, Dict
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.database import get_db
-from app.models import User
+from app.models import User, Appointment
 from app.schemas.common import ApiResponse
 from app.schemas.status_record import (
     CheckInRequest, InjectionRequest, ScanStartRequest,
@@ -17,7 +19,40 @@ router = APIRouter()
 logger = get_logger("router_status")
 
 
-@router.post("/checkin", response_model=ApiResponse[AppointmentResponse])
+def _build_status_response(appointment: Appointment, status_type: str) -> Dict[str, Any]:
+    """构造统一的状态返回结构"""
+    response = {
+        "status": appointment.status,
+        "record_id": appointment.appointment_no,
+        "appointment_id": appointment.id,
+        "appointment_no": appointment.appointment_no,
+        "status_type": status_type,
+        "patient_name": appointment.patient.name if appointment.patient else "",
+        "key_timestamps": {
+            "created_at": appointment.created_at,
+            "checkin_time": appointment.checkin_time,
+            "injection_time": appointment.injection_time,
+            "scan_start_time": appointment.scan_start_time,
+            "completion_time": appointment.completion_time,
+            "cancellation_time": appointment.cancelled_at,
+            "cancel_time": appointment.cancelled_at,
+            "status_changed_at": appointment.status_changed_at
+        },
+        "appointment_date": appointment.appointment_date,
+        "time_slot": appointment.time_slot,
+        "queue_number": appointment.queue_number,
+        "checkin_time": appointment.checkin_time,
+        "injection_time": appointment.injection_time,
+        "scan_start_time": appointment.scan_start_time,
+        "completion_time": appointment.completion_time,
+        "cancellation_time": appointment.cancelled_at
+    }
+    if appointment.cancelled_at:
+        response["cancel_time"] = appointment.cancelled_at
+    return response
+
+
+@router.post("/checkin", response_model=ApiResponse)
 def record_checkin(
     request: CheckInRequest,
     db: Session = Depends(get_db),
@@ -28,10 +63,10 @@ def record_checkin(
     if not request.recorded_by:
         request.recorded_by = current_user.real_name
     appointment = service.check_in(request)
-    return ApiResponse(data=AppointmentResponse.model_validate(appointment), message="签到成功")
+    return ApiResponse(data=_build_status_response(appointment, "checkin"), message="签到成功")
 
 
-@router.post("/injection", response_model=ApiResponse[AppointmentResponse])
+@router.post("/injection", response_model=ApiResponse)
 def record_injection(
     request: InjectionRequest,
     db: Session = Depends(get_db),
@@ -42,10 +77,10 @@ def record_injection(
     if not request.recorded_by:
         request.recorded_by = current_user.real_name
     appointment = service.record_injection(request)
-    return ApiResponse(data=AppointmentResponse.model_validate(appointment), message="注射记录成功")
+    return ApiResponse(data=_build_status_response(appointment, "injection"), message="注射记录成功")
 
 
-@router.post("/scan-start", response_model=ApiResponse[AppointmentResponse])
+@router.post("/scan-start", response_model=ApiResponse)
 def record_scan_start(
     request: ScanStartRequest,
     db: Session = Depends(get_db),
@@ -56,10 +91,10 @@ def record_scan_start(
     if not request.recorded_by:
         request.recorded_by = current_user.real_name
     appointment = service.record_scan_start(request)
-    return ApiResponse(data=AppointmentResponse.model_validate(appointment), message="扫描开始记录成功")
+    return ApiResponse(data=_build_status_response(appointment, "scan_start"), message="扫描开始记录成功")
 
 
-@router.post("/completion", response_model=ApiResponse[AppointmentResponse])
+@router.post("/completion", response_model=ApiResponse)
 def record_completion(
     request: CompletionRequest,
     db: Session = Depends(get_db),
@@ -70,10 +105,10 @@ def record_completion(
     if not request.recorded_by:
         request.recorded_by = current_user.real_name
     appointment = service.record_completion(request)
-    return ApiResponse(data=AppointmentResponse.model_validate(appointment), message="检查完成记录成功")
+    return ApiResponse(data=_build_status_response(appointment, "completion"), message="检查完成记录成功")
 
 
-@router.post("/cancellation", response_model=ApiResponse[AppointmentResponse])
+@router.post("/cancellation", response_model=ApiResponse)
 def record_cancellation(
     request: CancellationRequest,
     db: Session = Depends(get_db),
@@ -84,7 +119,7 @@ def record_cancellation(
     if not request.cancelled_by:
         request.cancelled_by = current_user.real_name
     appointment = service.record_cancellation(request)
-    return ApiResponse(data=AppointmentResponse.model_validate(appointment), message="取消记录成功")
+    return ApiResponse(data=_build_status_response(appointment, "cancellation"), message="取消记录成功")
 
 
 @router.get("/appointment/{appointment_id}", response_model=ApiResponse)

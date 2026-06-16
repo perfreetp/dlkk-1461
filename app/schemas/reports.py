@@ -165,3 +165,41 @@ class DailyOperationReport(BaseModel):
     items: List[DailyOperationItem] = Field(description="明细数据")
     kpi_summary: Dict[str, Any] = Field(description="KPI摘要")
     alerts_summary: Optional[Dict[str, Any]] = Field(default=None, description="预警摘要")
+
+
+class KPIDashboardResponse(BaseModel):
+    dashboard_type: str = "overview"
+    period: str = Field(..., description="统计周期: today/week/month/quarter")
+    start_date: date
+    end_date: date
+    generated_at: datetime
+
+    total_appointments: int = Field(description="总预约数")
+    completed_appointments: int = Field(description="完成数")
+    pending_appointments: int = Field(description="待处理数")
+    cancelled_appointments: int = Field(description="取消数")
+    no_show_appointments: int = Field(description="爽约数")
+
+    completion_rate: float = Field(description="完成率")
+    no_show_rate: float = Field(description="爽约率")
+    avg_turnover_minutes: float = Field(description="平均周转时间")
+    avg_wait_time_minutes: float = Field(description="平均等待时间")
+
+    equipment_utilization_rate: float = Field(description="设备利用率")
+    drug_utilization_rate: float = Field(description="药物利用率")
+    drug_waste_rate: float = Field(description="药物浪费率")
+
+    referral_total: int = Field(description="转诊总数")
+    referral_completed: int = Field(description="转诊完成数")
+    referral_completion_rate: float = Field(description="转诊完成率")
+
+    active_alerts: int = Field(description="活跃预警数")
+    critical_alerts: int = Field(description="严重预警数")
+    alerts_resolved_rate: float = Field(description="预警解决率")
+
+    hospital_kpis: List[Dict[str, Any]] = Field(default_factory=list, description="各院区KPI")
+    trends: Optional[Dict[str, Any]] = Field(default=None, description="趋势数据")
+    comparison: Optional[Dict[str, Any]] = Field(default=None, description="同比环比数据")
+
+    class Config:
+        from_attributes = True

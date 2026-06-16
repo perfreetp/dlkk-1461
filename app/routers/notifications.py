@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.notification import (
-    NotificationResponse, NotificationSendRequest,
+    NotificationResponse, NotificationCreate, NotificationSendRequest,
     ReceiptGenerateRequest, RescheduleNotificationRequest,
     PreparationReminderRequest, NotificationType, NotificationChannel
 )

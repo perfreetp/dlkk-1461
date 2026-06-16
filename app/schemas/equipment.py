@@ -66,3 +66,26 @@ class EquipmentResponse(EquipmentBase):
 
     class Config:
         from_attributes = True
+
+
+EquipmentStatusUpdateRequest = EquipmentStatusUpdate
+
+
+class MaintenanceRecordCreate(BaseModel):
+    equipment_id: int = Field(..., description="设备ID")
+    maintenance_type: str = Field(..., max_length=50, description="维护类型")
+    description: str = Field(..., description="维护描述")
+    start_time: datetime = Field(..., description="开始时间")
+    end_time: Optional[datetime] = Field(default=None, description="结束时间")
+    operator: Optional[str] = Field(default=None, max_length=50, description="操作人")
+    cost: Optional[float] = Field(default=None, ge=0, description="费用")
+    notes: Optional[str] = Field(default=None, description="备注")
+
+
+class MaintenanceRecordResponse(MaintenanceRecordCreate):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

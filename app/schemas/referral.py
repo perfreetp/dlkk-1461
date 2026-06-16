@@ -1,6 +1,23 @@
 from typing import Optional, List
 from datetime import datetime, date
 from pydantic import BaseModel, Field
+from enum import Enum
+
+
+class ReferralStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    TRANSFERRED = "transferred"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class ReferralNetworkStatus(str, Enum):
+    AVAILABLE = "available"
+    BUSY = "busy"
+    OFFLINE = "offline"
+    MAINTENANCE = "maintenance"
 
 
 class ReferralBase(BaseModel):
@@ -85,4 +102,41 @@ class ReferralAutoAssignResponse(BaseModel):
     available_dates: List[date] = Field(..., description="可用日期列表")
     alternative_hospitals: List[dict] = Field(default_factory=list, description="备选院区列表")
     traffic_condition: str = Field(default="normal", description="交通状况")
+    notes: Optional[str] = Field(default=None, description="备注")
+
+
+class ReferralAutoAssignRequest(BaseModel):
+    appointment_id: Optional[int] = Field(default=None, description="预约ID")
+    patient_id: int = Field(..., description="患者ID")
+    source_hospital_id: int = Field(..., description="转出院区ID")
+    patient_city: Optional[str] = Field(default=None, description="患者所在城市")
+    patient_district: Optional[str] = Field(default=None, description="患者所在区县")
+    preferred_date: Optional[date] = Field(default=None, description="期望日期")
+    exam_purpose: Optional[str] = Field(default=None, description="检查目的")
+    urgency_level: Optional[str] = Field(default=None, description="紧急程度")
+    needs_anesthesia: bool = Field(default=False, description="是否需要麻醉")
+    is_inpatient: bool = Field(default=False, description="是否住院")
+    max_distance_km: Optional[float] = Field(default=50, ge=0, description="最大距离(公里)")
+    max_travel_time_minutes: Optional[int] = Field(default=60, ge=0, description="最长行程时间(分钟)")
+    consider_traffic: bool = Field(default=True, description="是否考虑交通状况")
+    top_n: int = Field(default=3, ge=1, description="返回前N个推荐结果")
+
+
+class ReferralAcceptRequest(BaseModel):
+    referral_id: int = Field(..., description="转诊ID")
+    accepted_by: str = Field(..., max_length=50, description="接收人")
+    notes: Optional[str] = Field(default=None, description="备注")
+
+
+class ReferralRejectRequest(BaseModel):
+    referral_id: int = Field(..., description="转诊ID")
+    reason: str = Field(..., max_length=255, description="拒绝原因")
+    rejected_by: str = Field(..., max_length=50, description="拒绝人")
+    suggest_alternative_hospital: Optional[int] = Field(default=None, description="建议备选院区ID")
+
+
+class ReferralCompleteRequest(BaseModel):
+    referral_id: int = Field(..., description="转诊ID")
+    completed_by: str = Field(..., max_length=50, description="完成人")
+    actual_exam_date: Optional[date] = Field(default=None, description="实际检查日期")
     notes: Optional[str] = Field(default=None, description="备注")

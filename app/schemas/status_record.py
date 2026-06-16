@@ -60,10 +60,10 @@ class InjectionRequest(BaseModel):
     injection_time: Optional[datetime] = Field(default=None, description="注射时间")
     recorded_by: Optional[str] = Field(default=None, description="记录人")
 
-    tracer_batch_no: str = Field(..., max_length=50, description="示踪剂批次号")
+    tracer_batch_no: Optional[str] = Field(default=None, max_length=50, description="示踪剂批次号")
     tracer_type: str = Field(default="fdg", max_length=20, description="示踪剂类型")
-    tracer_dose_mbq: float = Field(..., gt=0, description="注射剂量(MBq)")
-    tracer_injection_site: str = Field(..., max_length=50, description="注射部位")
+    tracer_dose_mbq: Optional[float] = Field(default=None, gt=0, description="注射剂量(MBq)")
+    tracer_injection_site: Optional[str] = Field(default=None, max_length=50, description="注射部位")
     vein_access: Optional[str] = Field(default=None, max_length=50, description="静脉通路")
 
     administered_by: Optional[str] = Field(default=None, max_length=50, description="注射人员")

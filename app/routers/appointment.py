@@ -1,16 +1,18 @@
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from datetime import date
 
 from app.database import get_db
 from app.models import User
+from app.exceptions import ValidationError
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.appointment import (
     AppointmentCreate, AppointmentUpdate, AppointmentResponse,
     AppointmentCategorizeResponse, AppointmentQueryParams,
     AppointmentBatchCreate, PlusSignRequest, AppointmentStatus,
-    AppointmentListResponse
+    AppointmentListResponse, ExamPurpose, UrgencyLevel
 )
 from app.schemas.reschedule import RescheduleRequest, RescheduleResult
 from app.services import AppointmentService, RescheduleService
@@ -36,14 +38,16 @@ def list_appointments(
         limit=pagination.limit
     )
 
-    items = [AppointmentListResponse.model_validate(apt) for apt in appointments]
-    for item in items:
+    items = []
+    for apt in appointments:
+        item = AppointmentListResponse.model_validate(apt)
         if apt.patient:
             item.patient_name = apt.patient.name
         if apt.hospital:
             item.hospital_name = apt.hospital.name
         if apt.equipment:
             item.equipment_name = apt.equipment.name
+        items.append(item)
 
     return ApiResponse(
         data=PaginatedResponse(
@@ -68,17 +72,66 @@ def get_appointment(
     return ApiResponse(data=AppointmentResponse.model_validate(appointment))
 
 
-@router.post("/categorize", response_model=ApiResponse[AppointmentCategorizeResponse])
+class _CategorizeRequest(BaseModel):
+    appointment_ids: Optional[List[int]] = None
+    patient_id: Optional[int] = None
+    hospital_id: Optional[int] = None
+    exam_purpose: Optional[ExamPurpose] = None
+    appointment_date: Optional[date] = None
+    urgency_level: Optional[UrgencyLevel] = None
+    is_inpatient: Optional[bool] = None
+    needs_anesthesia: Optional[bool] = None
+    tracer_type: Optional[str] = None
+
+
+@router.post("/categorize", response_model=ApiResponse)
 def categorize_appointment(
-    appointment_data: AppointmentCreate,
+    request_data: _CategorizeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """预约请求多维度归类（检查目的、紧急度、住院/麻醉等）"""
     service = AppointmentService(db)
-    patient = service._get_patient(appointment_data.patient_id)
-    result = service.categorize_appointment(appointment_data, patient)
-    return ApiResponse(data=result, message="归类完成")
+
+    if request_data.appointment_ids:
+        results = []
+        for apt_id in request_data.appointment_ids:
+            apt = service.get_appointment_by_id(apt_id)
+            if apt:
+                apt_create = AppointmentCreate(
+                    patient_id=apt.patient_id,
+                    hospital_id=apt.hospital_id,
+                    exam_purpose=apt.exam_purpose,
+                    appointment_date=apt.appointment_date,
+                    urgency_level=apt.urgency_level,
+                    is_inpatient=apt.is_inpatient,
+                    needs_anesthesia=apt.needs_anesthesia,
+                    tracer_type=apt.tracer_type
+                )
+                patient = service._get_patient(apt.patient_id)
+                result = service.categorize_appointment(apt_create, patient)
+                result_dict = result.model_dump()
+                result_dict["appointment_id"] = apt_id
+                results.append(result_dict)
+        return ApiResponse(data=results, message="批量归类完成")
+
+    elif request_data.patient_id and request_data.hospital_id and request_data.exam_purpose and request_data.appointment_date:
+        apt_create = AppointmentCreate(
+            patient_id=request_data.patient_id,
+            hospital_id=request_data.hospital_id,
+            exam_purpose=request_data.exam_purpose,
+            appointment_date=request_data.appointment_date,
+            urgency_level=request_data.urgency_level or UrgencyLevel.NORMAL,
+            is_inpatient=request_data.is_inpatient or False,
+            needs_anesthesia=request_data.needs_anesthesia or False,
+            tracer_type=request_data.tracer_type or "fdg"
+        )
+        patient = service._get_patient(request_data.patient_id)
+        result = service.categorize_appointment(apt_create, patient)
+        return ApiResponse(data=result, message="归类完成")
+
+    else:
+        raise ValidationError("请提供appointment_ids或完整的预约信息")
 
 
 @router.post("", response_model=ApiResponse[AppointmentResponse])

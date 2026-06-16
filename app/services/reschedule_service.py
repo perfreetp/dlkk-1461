@@ -278,9 +278,15 @@ class RescheduleService:
                 total_count=0,
                 success_count=0,
                 failed_count=0,
+                skipped_count=0,
+                total=0,
+                success=0,
+                failed=0,
+                skipped=0,
                 reason=request.reason,
                 strategy=request.strategy,
                 results=[],
+                success_details=[],
                 summary={"message": "没有需要重排的预约"}
             )
 
@@ -341,9 +347,14 @@ class RescheduleService:
             success_count=success_count,
             failed_count=failed_count,
             skipped_count=skipped_count,
+            total=len(appointments),
+            success=success_count,
+            failed=failed_count,
+            skipped=skipped_count,
             reason=request.reason,
             strategy=request.strategy,
             results=results,
+            success_details=self._build_success_details(results),
             affected_hospitals=list(affected_hospitals),
             summary=summary,
             warnings=self._generate_warnings(results)
@@ -587,9 +598,15 @@ class RescheduleService:
             total_count=len(appointments),
             success_count=success_count,
             failed_count=len(appointments) - success_count,
+            skipped_count=0,
+            total=len(appointments),
+            success=success_count,
+            failed=len(appointments) - success_count,
+            skipped=0,
             reason=RescheduleReason.DRUG_DELAY,
             strategy=RescheduleStrategy.MINIMIZE_IMPACT,
             results=results,
+            success_details=self._build_success_details(results),
             estimated_impact_minutes=delay_minutes,
             summary={"message": f"已顺延{success_count}个预约的注射时间，平均延迟{delay_minutes}分钟"}
         )
@@ -744,12 +761,39 @@ class RescheduleService:
             success_count=0,
             failed_count=0,
             skipped_count=len(appointments),
+            total=len(appointments),
+            success=0,
+            failed=0,
+            skipped=len(appointments),
             reason=reason,
             strategy=strategy,
             results=results,
+            success_details=[],
             summary={"message": "自动重排未启用，请手动处理"},
             warnings=["自动重排功能未启用，需要手动处理受影响预约"]
         )
+
+    def _build_success_details(
+        self,
+        results: List[RescheduleResult]
+    ) -> List[Dict[str, Any]]:
+        """从结果中构造成功详情"""
+        success_details = []
+        for result in results:
+            if result.success:
+                success_details.append({
+                    "appointment_id": result.appointment_id,
+                    "appointment_no": result.appointment_no,
+                    "patient_name": result.patient_name,
+                    "new_date": result.new_date,
+                    "new_time_slot": result.new_time_slot,
+                    "new_hospital_id": result.new_hospital_id,
+                    "new_hospital_name": result.new_hospital_name,
+                    "new_queue_number": result.new_queue_number,
+                    "notification_sent": result.notification_sent,
+                    "message": result.message
+                })
+        return success_details
 
     def _generate_reschedule_summary(
         self,

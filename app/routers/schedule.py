@@ -9,7 +9,7 @@ from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.schedule import (
     ScheduleTemplateCreate, ScheduleTemplateUpdate, ScheduleTemplateResponse,
     ShiftAssignmentCreate, ShiftAssignmentUpdate, ShiftAssignmentResponse,
-    SupportPlanCreate, SupportPlanResponse, SupportPlanApproveRequest,
+    SupportPlanCreate, SupportPlanUpdate, SupportPlanResponse, SupportPlanApproveRequest,
     ShiftSwapRequest, ShiftSwapApproveRequest, HolidayTemplateGenerateRequest,
     WeeklyScheduleGenerateRequest, TemplateType
 )

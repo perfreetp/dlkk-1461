@@ -1,6 +1,26 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field, EmailStr
+from enum import Enum
+
+
+class NotificationType(str, Enum):
+    RECEIPT = "receipt"
+    RESCHEDULE = "reschedule"
+    PREPARATION = "preparation"
+    REMINDER = "reminder"
+    ALERT = "alert"
+    REPORT = "report"
+    SYSTEM = "system"
+
+
+class NotificationChannel(str, Enum):
+    SYSTEM = "system"
+    SMS = "sms"
+    EMAIL = "email"
+    WECHAT = "wechat"
+    APP = "app"
+    PHONE = "phone"
 
 
 class NotificationBase(BaseModel):
@@ -66,3 +86,19 @@ class RescheduleNotificationRequest(BaseModel):
     notify_patient: bool = Field(default=True, description="是否通知患者")
     notify_hospital: bool = Field(default=True, description="是否通知院区")
     notify_department: bool = Field(default=False, description="是否通知科室")
+
+
+class PreparationReminderRequest(BaseModel):
+    appointment_id: Optional[int] = Field(default=None, description="预约ID")
+    hospital_id: Optional[int] = Field(default=None, description="院区ID")
+    reminder_type: str = Field(default="preparation", max_length=50, description="提醒类型")
+    lead_time_hours: int = Field(default=24, ge=1, description="提前提醒小时数")
+    include_tracer_info: bool = Field(default=True, description="是否包含药物信息")
+    include_dietary_instructions: bool = Field(default=True, description="是否包含饮食指导")
+    include_medication_instructions: bool = Field(default=True, description="是否包含用药指导")
+    channel: Optional[NotificationChannel] = Field(default=None, description="发送渠道")
+    language: str = Field(default="zh-CN", max_length=10, description="语言")
+
+
+    class Config:
+        from_attributes = True

@@ -61,3 +61,31 @@ class HospitalResponse(HospitalBase):
 
     class Config:
         from_attributes = True
+
+
+class HospitalCapacityUpdateRequest(BaseModel):
+    daily_capacity: Optional[int] = Field(default=None, ge=0, description="日检查容量")
+    morning_capacity: Optional[int] = Field(default=None, ge=0, description="上午容量")
+    afternoon_capacity: Optional[int] = Field(default=None, ge=0, description="下午容量")
+    emergency_slots: Optional[int] = Field(default=None, ge=0, description="急诊预留时段")
+    anesthesia_slots: Optional[int] = Field(default=None, ge=0, description="麻醉预留时段")
+    inpatient_slots: Optional[int] = Field(default=None, ge=0, description="住院预留时段")
+    effective_date: Optional[str] = Field(default=None, description="生效日期")
+    notes: Optional[str] = Field(default=None, description="备注")
+
+
+class HospitalStatusResponse(BaseModel):
+    hospital_id: int
+    hospital_name: str
+    today_total: int = 0
+    today_completed: int = 0
+    today_pending: int = 0
+    today_cancelled: int = 0
+    current_queue_length: int = 0
+    equipment_available: int = 0
+    tracer_available: int = 0
+    is_normal: bool = True
+    last_updated: datetime
+
+    class Config:
+        from_attributes = True

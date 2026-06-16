@@ -6,7 +6,8 @@ from app.database import get_db
 from app.models import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.patient import (
-    PatientCreate, PatientUpdate, PatientResponse, PatientQueryParams
+    PatientCreate, PatientUpdate, PatientResponse, PatientQueryParams,
+    PatientRiskAssessment, HighRiskPatient
 )
 from app.utils.auth import get_current_active_user, require_roles
 from app.utils.logger import get_logger

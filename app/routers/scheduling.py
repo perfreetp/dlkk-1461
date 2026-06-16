@@ -39,18 +39,6 @@ def get_network_capacity(
     return ApiResponse(data=status, message="网络容量状态获取成功")
 
 
-@router.post("/allocate/{appointment_id}", response_model=ApiResponse)
-def allocate_resources(
-    appointment_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """为预约分配号源、设备时段、示踪剂窗口"""
-    service = SchedulingService(db)
-    result = service.allocate_resources(appointment_id)
-    return ApiResponse(data=result, message="资源分配完成")
-
-
 @router.post("/allocate/batch", response_model=ApiResponse)
 def batch_allocate_resources(
     hospital_id: int,
@@ -62,6 +50,18 @@ def batch_allocate_resources(
     service = SchedulingService(db)
     result = service.batch_allocate_resources(hospital_id, target_date)
     return ApiResponse(data=result, message=f"批量分配完成，成功{result.get('success', 0)}条")
+
+
+@router.post("/allocate/{appointment_id}", response_model=ApiResponse)
+def allocate_resources(
+    appointment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """为预约分配号源、设备时段、示踪剂窗口"""
+    service = SchedulingService(db)
+    result = service.allocate_resources(appointment_id)
+    return ApiResponse(data=result, message="资源分配完成")
 
 
 @router.get("/slots/{hospital_id}/{target_date}", response_model=ApiResponse)

@@ -8,7 +8,7 @@ from app.models import (
     ScheduleTemplate, SupportPlan, Patient
 )
 from app.schemas import (
-    AppointmentStatus, AppointmentCategorizeResponse
+    AppointmentStatus, AppointmentCategorizeResponse, AppointmentCreate
 )
 from app.utils import (
     get_logger, safe_divide, calculate_distance, estimate_travel_time
@@ -28,12 +28,35 @@ class SchedulingService:
 
     def allocate_resources(
         self,
-        appointment: Appointment,
-        categorization: AppointmentCategorizeResponse
+        appointment_or_id,
+        categorization: Optional[AppointmentCategorizeResponse] = None
     ) -> Dict[str, Any]:
         """
         为预约分配资源：号源、设备时段、示踪剂窗口
+        支持传入appointment对象或appointment_id
         """
+        if isinstance(appointment_or_id, int):
+            from app.services import AppointmentService
+            apt_service = AppointmentService(self.db)
+            appointment = apt_service.get_appointment(appointment_or_id)
+            patient = apt_service._get_patient(appointment.patient_id)
+            if categorization is None:
+                categorization = apt_service.categorize_appointment(
+                    appointment_data=AppointmentCreate(**{
+                        'patient_id': appointment.patient_id,
+                        'hospital_id': appointment.hospital_id,
+                        'exam_purpose': appointment.exam_purpose,
+                        'urgency_level': appointment.urgency_level,
+                        'is_inpatient': appointment.is_inpatient,
+                        'needs_anesthesia': appointment.needs_anesthesia,
+                        'appointment_date': appointment.appointment_date,
+                        'tracer_type': appointment.tracer_type
+                    }),
+                    patient=patient
+                )
+        else:
+            appointment = appointment_or_id
+
         result = {
             "appointment_id": appointment.id,
             "appointment_no": appointment.appointment_no,
@@ -111,6 +134,7 @@ class SchedulingService:
             appointment.tracer_dose_mbq = tracer_allocation.get("allocated_dose")
 
         result["allocated"] = True
+        result["tracer_window"] = result.get("injection_window")
         self.db.commit()
 
         logger.info(f"资源分配成功: 预约{appointment.appointment_no} -> 设备{equipment.id}, 时段{time_slot}")
@@ -308,6 +332,18 @@ class SchedulingService:
             if appt.queue_number and appt.queue_number >= insert_position:
                 appt.queue_number += 1
 
+    def _parse_time_str(self, time_str: Optional[str], default: time) -> time:
+        """将时间字符串转换为time对象"""
+        if not time_str:
+            return default
+        try:
+            if isinstance(time_str, time):
+                return time_str
+            hour, minute = map(int, time_str.split(':'))
+            return time(hour, minute)
+        except (ValueError, AttributeError):
+            return default
+
     def _calculate_time_slot(
         self,
         queue_number: int,
@@ -316,10 +352,10 @@ class SchedulingService:
     ) -> str:
         """计算具体时段"""
         template = self._get_applicable_template(equipment.hospital_id, date.today())
-        work_start = template.work_start_time if template else time(8, 0)
-        work_end = template.work_end_time if template else time(17, 0)
-        lunch_start = template.lunch_start_time if template else time(12, 0)
-        lunch_end = template.lunch_end_time if template else time(13, 30)
+        work_start = self._parse_time_str(template.work_start_time if template else None, time(8, 0))
+        work_end = self._parse_time_str(template.work_end_time if template else None, time(17, 0))
+        lunch_start = self._parse_time_str(template.lunch_start_time if template else None, time(12, 0))
+        lunch_end = self._parse_time_str(template.lunch_end_time if template else None, time(13, 30))
 
         slot_duration = equipment.scan_duration_minutes + equipment.setup_duration_minutes
         morning_capacity = template.morning_capacity if template else 12
@@ -508,6 +544,8 @@ class SchedulingService:
             "total_capacity": capacity,
             "total_booked": booked,
             "total_available": available,
+            "used_capacity": booked,
+            "available_capacity": available,
             "utilization_rate": round(safe_divide(booked, capacity), 4),
             "morning": {
                 "capacity": morning_cap,
@@ -560,3 +598,307 @@ class SchedulingService:
                 logger.error(f"批量分配失败: {appt.id}, {str(e)}")
 
         return results
+
+    def batch_allocate_resources(self, hospital_id: int, target_date: date) -> Dict[str, Any]:
+        """批量分配某日某院所有待分配预约的资源（路由调用）"""
+        from app.models import Appointment
+        appointments = self.db.query(Appointment).filter(
+            Appointment.hospital_id == hospital_id,
+            Appointment.appointment_date == target_date,
+            Appointment.status.in_(["pending"]),
+            Appointment.equipment_id.is_(None)
+        ).all()
+
+        result = self.batch_allocate(appointments)
+        result["total"] = len(appointments)
+        return result
+
+    def get_available_time_slots(
+        self,
+        hospital_id: int,
+        target_date: date,
+        tracer_type: Optional[str] = None,
+        needs_anesthesia: Optional[bool] = None
+    ) -> List[Dict[str, Any]]:
+        """获取可用时段列表"""
+        from app.models import Equipment, Appointment
+
+        equipment_list = self.db.query(Equipment).filter(
+            Equipment.hospital_id == hospital_id,
+            Equipment.is_active == True,
+            Equipment.status == "available"
+        ).all()
+
+        slots = []
+        for eq in equipment_list:
+            daily_schedule = self._get_equipment_daily_schedule(eq.id, target_date)
+            used_queues = [a.queue_number for a in daily_schedule if a.queue_number]
+
+            template = self._get_applicable_template(hospital_id, target_date)
+            morning_cap = template.morning_capacity if template else 12
+            total_cap = eq.daily_capacity
+
+            for queue_num in range(1, total_cap + 1):
+                if queue_num not in used_queues:
+                    time_slot = self._calculate_time_slot(queue_num, eq, None)
+                    period = "上午" if queue_num <= morning_cap else "下午"
+
+                    slots.append({
+                        "equipment_id": eq.id,
+                        "equipment_name": eq.name,
+                        "queue_number": queue_num,
+                        "time_slot": time_slot,
+                        "period": period,
+                        "duration_minutes": eq.scan_duration_minutes + eq.setup_duration_minutes,
+                        "needs_anesthesia": needs_anesthesia,
+                        "tracer_type": tracer_type or "fdg"
+                    })
+
+        return slots[:30]
+
+    def get_tracer_usage_windows(
+        self,
+        hospital_id: int,
+        target_date: date,
+        tracer_type: str = "fdg"
+    ) -> List[Dict[str, Any]]:
+        """获取示踪剂使用窗口"""
+        from app.models import Tracer, TracerBatch
+
+        tracer = self.db.query(Tracer).filter(
+            Tracer.hospital_id == hospital_id,
+            Tracer.tracer_type == tracer_type,
+            Tracer.is_active == True
+        ).first()
+
+        if not tracer:
+            return []
+
+        batches = self.db.query(TracerBatch).filter(
+            TracerBatch.tracer_id == tracer.id,
+            TracerBatch.status == "available",
+            func.date(TracerBatch.arrival_time) <= target_date,
+            TracerBatch.expiry_time >= datetime.combine(target_date, time(23, 59))
+        ).all()
+
+        windows = []
+        start_hour = 8
+        for batch in batches:
+            for i in range(6):
+                hour = start_hour + i
+                if hour < 12 or hour > 13:
+                    windows.append({
+                        "tracer_id": tracer.id,
+                        "tracer_name": tracer.name,
+                        "batch_id": batch.id,
+                        "batch_no": batch.batch_no,
+                        "window_start": f"{hour:02d}:00",
+                        "window_end": f"{hour:02d}:30",
+                        "available_activity_mbq": batch.remaining_activity if hasattr(batch, 'remaining_activity') else batch.total_activity_mbq,
+                        "max_patients": 5
+                    })
+
+        return windows
+
+    def generate_daily_scheduling_plan(
+        self,
+        hospital_id: int,
+        target_date: date,
+        auto_confirm: bool = False
+    ) -> Dict[str, Any]:
+        """生成每日排班计划"""
+        from app.models import Appointment
+
+        appointments = self.db.query(Appointment).filter(
+            Appointment.hospital_id == hospital_id,
+            Appointment.appointment_date == target_date,
+            Appointment.status.in_(["pending", "confirmed"])
+        ).order_by(Appointment.priority_score.desc()).all()
+
+        unallocated = [a for a in appointments if a.equipment_id is None]
+        if unallocated and auto_confirm:
+            self.batch_allocate(unallocated)
+
+        allocated = [a for a in appointments if a.equipment_id is not None]
+
+        return {
+            "date": target_date,
+            "hospital_id": hospital_id,
+            "total_appointments": len(appointments),
+            "allocated": len(allocated),
+            "unallocated": len(unallocated),
+            "appointments": [
+                {
+                    "appointment_id": a.id,
+                    "appointment_no": a.appointment_no,
+                    "patient_name": a.patient.name if a.patient else "",
+                    "priority_score": a.priority_score,
+                    "queue_number": a.queue_number,
+                    "time_slot": a.time_slot,
+                    "equipment_id": a.equipment_id,
+                    "status": a.status
+                }
+                for a in allocated
+            ]
+        }
+
+    def get_equipment_load_status(
+        self,
+        hospital_id: int,
+        target_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """获取设备负载情况"""
+        from app.models import Equipment, Appointment
+
+        target_date = target_date or date.today()
+
+        equipment_list = self.db.query(Equipment).filter(
+            Equipment.hospital_id == hospital_id,
+            Equipment.is_active == True
+        ).all()
+
+        load_status = []
+        for eq in equipment_list:
+            daily_schedule = self._get_equipment_daily_schedule(eq.id, target_date)
+            load = len(daily_schedule) / eq.daily_capacity if eq.daily_capacity > 0 else 0
+
+            load_status.append({
+                "equipment_id": eq.id,
+                "equipment_name": eq.name,
+                "equipment_code": eq.code,
+                "daily_capacity": eq.daily_capacity,
+                "booked_count": len(daily_schedule),
+                "load_rate": round(load, 4),
+                "status": eq.status
+            })
+
+        return {
+            "hospital_id": hospital_id,
+            "date": target_date,
+            "equipment_load": load_status,
+            "average_load_rate": round(sum(s["load_rate"] for s in load_status) / len(load_status), 4) if load_status else 0
+        }
+
+    def optimize_queue_order(
+        self,
+        hospital_id: int,
+        target_date: date,
+        strategy: str = "priority_first"
+    ) -> Dict[str, Any]:
+        """优化排队队列顺序"""
+        from app.models import Appointment
+
+        appointments = self.db.query(Appointment).filter(
+            Appointment.hospital_id == hospital_id,
+            Appointment.appointment_date == target_date,
+            Appointment.status.notin_(["completed", "cancelled", "no_show"])
+        ).all()
+
+        if strategy == "priority_first":
+            appointments.sort(key=lambda a: (-a.priority_score, a.queue_number or 999))
+        elif strategy == "earliest_first":
+            appointments.sort(key=lambda a: (a.time_slot or "", a.queue_number or 999))
+        elif strategy == "inpatient_first":
+            appointments.sort(key=lambda a: (-1 if a.is_inpatient else 0, -a.priority_score))
+
+        adjusted_count = 0
+        for idx, appt in enumerate(appointments):
+            new_queue = idx + 1
+            if appt.queue_number != new_queue:
+                appt.queue_number = new_queue
+                adjusted_count += 1
+
+        self.db.commit()
+
+        return {
+            "hospital_id": hospital_id,
+            "date": target_date,
+            "strategy": strategy,
+            "total_optimized": len(appointments),
+            "adjusted_count": adjusted_count
+        }
+
+    def get_network_capacity_status(
+        self,
+        target_date: Optional[date] = None
+    ) -> Dict[str, Any]:
+        """获取整个医联体网络容量状态"""
+        from app.models import Hospital
+
+        target_date = target_date or date.today()
+
+        hospitals = self.db.query(Hospital).filter(Hospital.is_active == True).all()
+
+        network_status = []
+        for hospital in hospitals:
+            status = self.get_hospital_capacity_status(hospital.id, target_date)
+            network_status.append(status)
+
+        total_capacity = sum(s["total_capacity"] for s in network_status)
+        total_booked = sum(s["total_booked"] for s in network_status)
+        total_available = sum(s["total_available"] for s in network_status)
+
+        return {
+            "date": target_date,
+            "total_hospitals": len(hospitals),
+            "total_capacity": total_capacity,
+            "total_booked": total_booked,
+            "total_available": total_available,
+            "used_capacity": total_booked,
+            "available_capacity": total_available,
+            "overall_utilization_rate": round(safe_divide(total_booked, total_capacity), 4),
+            "hospitals": network_status
+        }
+
+    def allocate_resources_for_reschedule(
+        self,
+        appointment: Appointment,
+        target_hospital_id: int,
+        target_date: date,
+        preferred_equipment_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """为重排预约分配资源"""
+        original_hospital_id = appointment.hospital_id
+        original_date = appointment.appointment_date
+
+        try:
+            appointment.hospital_id = target_hospital_id
+            appointment.appointment_date = target_date
+            appointment.equipment_id = preferred_equipment_id
+
+            from app.services import AppointmentService
+            apt_service = AppointmentService(self.db)
+            patient = apt_service._get_patient(appointment.patient_id)
+            categorization = apt_service.categorize_appointment(
+                appointment_data=AppointmentCreate(**{
+                    'patient_id': appointment.patient_id,
+                    'hospital_id': target_hospital_id,
+                    'exam_purpose': appointment.exam_purpose,
+                    'urgency_level': appointment.urgency_level,
+                    'is_inpatient': appointment.is_inpatient,
+                    'needs_anesthesia': appointment.needs_anesthesia,
+                    'appointment_date': target_date,
+                    'tracer_type': appointment.tracer_type
+                }),
+                patient=patient
+            )
+
+            result = self.allocate_resources(appointment, categorization)
+
+            if not result["allocated"]:
+                appointment.hospital_id = original_hospital_id
+                appointment.appointment_date = original_date
+                appointment.equipment_id = None
+
+            return result
+
+        except Exception as e:
+            logger.error(f"重排资源分配失败: {str(e)}")
+            appointment.hospital_id = original_hospital_id
+            appointment.appointment_date = original_date
+            appointment.equipment_id = None
+            return {
+                "appointment_id": appointment.id,
+                "allocated": False,
+                "warnings": [str(e)]
+            }

@@ -7,7 +7,7 @@ from app.models import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.hospital import (
     HospitalCreate, HospitalUpdate, HospitalResponse,
-    HospitalCapacityUpdateRequest
+    HospitalCapacityUpdateRequest, HospitalStatusResponse
 )
 from app.services import AppointmentService
 from app.utils.auth import get_current_active_user, require_roles

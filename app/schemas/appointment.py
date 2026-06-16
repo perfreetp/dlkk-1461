@@ -88,9 +88,12 @@ class AppointmentUpdate(BaseModel):
     time_slot: Optional[str] = Field(default=None, max_length=20)
     queue_number: Optional[int] = Field(default=None)
     status: Optional[AppointmentStatus] = Field(default=None)
+    clinical_diagnosis: Optional[str] = Field(default=None, max_length=255)
     preparation_notes: Optional[str] = Field(default=None)
     exam_notes: Optional[str] = Field(default=None)
     tracer_dose_mbq: Optional[float] = Field(default=None)
+    referring_department: Optional[str] = Field(default=None, max_length=100)
+    referring_doctor: Optional[str] = Field(default=None, max_length=50)
 
 
 class AppointmentStatusUpdate(BaseModel):

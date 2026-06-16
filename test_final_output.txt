@@ -1,0 +1,29 @@
+Testing imports...
+SUCCESS: App created successfully
+Routes count: 153
+
+First 20 routes:
+  GET,HEAD             /openapi.json
+  GET,HEAD             /docs
+  GET,HEAD             /docs/oauth2-redirect
+  GET,HEAD             /redoc
+  GET                  /health
+  GET                  /
+  POST                 /api/v1/auth/login
+  POST                 /api/v1/auth/register
+  GET                  /api/v1/auth/me
+  POST                 /api/v1/auth/logout
+  GET                  /api/v1/appointments
+  GET                  /api/v1/appointments/{appointment_id}
+  POST                 /api/v1/appointments/categorize
+  POST                 /api/v1/appointments
+  POST                 /api/v1/appointments/batch
+  PUT                  /api/v1/appointments/{appointment_id}
+  POST                 /api/v1/appointments/plus-sign
+  POST                 /api/v1/appointments/{appointment_id}/reschedule
+  PUT                  /api/v1/appointments/{appointment_id}/status
+  GET                  /api/v1/appointments/queue/{hospital_id}/{appointment_date}
+
+... and 133 more routes
+
+All imports successful!
