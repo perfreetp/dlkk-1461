@@ -892,9 +892,15 @@ class SchedulingService:
         original_date = appointment.appointment_date
 
         try:
-            appointment.hospital_id = target_hospital_id
-            appointment.appointment_date = target_date
+            original_equipment_id = appointment.equipment_id
+            original_time_slot = appointment.time_slot
+            original_queue_number = appointment.queue_number
+            original_tracer_batch_id = appointment.tracer_batch_id
+
             appointment.equipment_id = preferred_equipment_id
+            appointment.time_slot = None
+            appointment.queue_number = None
+            appointment.tracer_batch_id = None
 
             from app.services import AppointmentService
             apt_service = AppointmentService(self.db)
@@ -918,7 +924,10 @@ class SchedulingService:
             if not result["allocated"]:
                 appointment.hospital_id = original_hospital_id
                 appointment.appointment_date = original_date
-                appointment.equipment_id = None
+                appointment.equipment_id = original_equipment_id
+                appointment.time_slot = original_time_slot
+                appointment.queue_number = original_queue_number
+                appointment.tracer_batch_id = original_tracer_batch_id
             else:
                 result["appointment_date"] = appointment.appointment_date
                 result["hospital_id"] = appointment.hospital_id

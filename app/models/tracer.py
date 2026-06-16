@@ -57,6 +57,16 @@ class TracerBatch(BaseModel):
     tracer = relationship("Tracer", back_populates="batches")
     usages = relationship("TracerUsage", back_populates="batch")
 
+    @property
+    def remaining_activity(self) -> float:
+        """剩余活度 = 总活度 - 已使用 - 已浪费"""
+        return self.total_activity_mbq - (self.used_activity_mbq or 0) - (self.wasted_activity_mbq or 0)
+
+    def is_expired(self) -> bool:
+        """是否已过期"""
+        from datetime import datetime
+        return self.expiry_time and self.expiry_time < datetime.utcnow()
+
     def __repr__(self):
         return f"<TracerBatch(id={self.id}, batch_no='{self.batch_no}', status='{self.status}')>"
 

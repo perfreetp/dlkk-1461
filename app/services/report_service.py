@@ -1004,16 +1004,17 @@ class ReportService:
         """计算药物分类统计"""
         tracers = {}
         for item in items:
-            if item.tracer_id not in tracers:
-                tracers[item.tracer_id] = {
+            key = str(item.tracer_id)
+            if key not in tracers:
+                tracers[key] = {
                     "tracer_name": item.tracer_name,
                     "total_used_mbq": 0,
                     "total_wasted_mbq": 0,
                     "patient_count": 0
                 }
-            tracers[item.tracer_id]["total_used_mbq"] += item.total_used_mbq
-            tracers[item.tracer_id]["total_wasted_mbq"] += item.total_wasted_mbq
-            tracers[item.tracer_id]["patient_count"] += item.patient_count
+            tracers[key]["total_used_mbq"] += item.total_used_mbq
+            tracers[key]["total_wasted_mbq"] += item.total_wasted_mbq
+            tracers[key]["patient_count"] += item.patient_count
 
         for t_id, data in tracers.items():
             data["utilization_rate"] = safe_divide(

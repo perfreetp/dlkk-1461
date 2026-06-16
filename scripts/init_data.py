@@ -239,6 +239,54 @@ def init_sample_data():
             db.flush()
             logger.info(f"创建了 {len(tracers)} 个示踪剂")
 
+        if db.query(TracerBatch).count() == 0:
+            from datetime import timedelta
+            now = datetime.now()
+            tracer_batches = [
+                TracerBatch(
+                    batch_no="FDG2026061701",
+                    tracer_id=1,
+                    total_activity_mbq=3700.0,
+                    calibration_activity=3700.0,
+                    calibration_time=now,
+                    production_time=now - timedelta(hours=2),
+                    arrival_time=now - timedelta(hours=1),
+                    expiry_time=now + timedelta(hours=12),
+                    status="available",
+                    used_activity_mbq=0.0,
+                    wasted_activity_mbq=0.0
+                ),
+                TracerBatch(
+                    batch_no="FDG2026061702",
+                    tracer_id=1,
+                    total_activity_mbq=2960.0,
+                    calibration_activity=2960.0,
+                    calibration_time=now,
+                    production_time=now - timedelta(hours=2),
+                    arrival_time=now - timedelta(hours=1),
+                    expiry_time=now + timedelta(hours=12),
+                    status="available",
+                    used_activity_mbq=0.0,
+                    wasted_activity_mbq=0.0
+                ),
+                TracerBatch(
+                    batch_no="FDOPA2026061701",
+                    tracer_id=2,
+                    total_activity_mbq=1850.0,
+                    calibration_activity=1850.0,
+                    calibration_time=now,
+                    production_time=now - timedelta(hours=2),
+                    arrival_time=now - timedelta(hours=1),
+                    expiry_time=now + timedelta(hours=12),
+                    status="available",
+                    used_activity_mbq=0.0,
+                    wasted_activity_mbq=0.0
+                )
+            ]
+            db.add_all(tracer_batches)
+            db.flush()
+            logger.info(f"创建了 {len(tracer_batches)} 个示踪剂批次")
+
         if db.query(Patient).count() == 0:
             patients = [
                 Patient(

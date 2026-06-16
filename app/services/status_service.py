@@ -150,13 +150,14 @@ class StatusService:
         记录示踪剂注射
         支持两种模式：
         1. 基础提交：仅appointment_id，更新到injected并返回关键时间点
-        2. 完整药物批次提交：带批次号和剂量，校验批次有效性和剩余活度
+        2. 完整药物批次提交：带批次号或示踪剂ID和剂量，校验批次有效性和剩余活度
         """
         appointment = self._get_appointment(request.appointment_id)
         injection_time = request.injection_time or datetime.utcnow()
         effective_dose = request.get_effective_dose_mbq()
         effective_site = request.get_effective_injection_site()
         effective_recorded_by = request.get_effective_recorded_by()
+        waste_activity = request.waste_activity or 0
 
         tracer_batch = None
         if request.tracer_batch_no:
@@ -170,19 +171,41 @@ class StatusService:
             if tracer_batch.is_expired():
                 raise ResourceNotAvailable(f"示踪剂批次已过期: {request.tracer_batch_no}")
 
-            if effective_dose and tracer_batch.remaining_activity < effective_dose:
-                raise ResourceNotAvailable(
-                    f"示踪剂活度不足，剩余: {tracer_batch.remaining_activity}MBq, "
-                    f"需要: {effective_dose}MBq"
-                )
+            if effective_dose is not None:
+                total_consume = effective_dose + waste_activity
+                if tracer_batch.remaining_activity < total_consume:
+                    raise ResourceNotAvailable(
+                        f"示踪剂活度不足，剩余: {tracer_batch.remaining_activity}MBq, "
+                        f"需要: {total_consume}MBq (注射{effective_dose} + 浪费{waste_activity})"
+                    )
         elif request.tracer_id:
             from app.models import Tracer
             tracer_obj = self.db.query(Tracer).filter(Tracer.id == request.tracer_id).first()
             if tracer_obj:
-                tracer_batch = self.db.query(TracerBatch).filter(
+                tracer_batches = self.db.query(TracerBatch).filter(
                     TracerBatch.tracer_id == tracer_obj.id,
                     TracerBatch.status == "available"
-                ).first()
+                ).order_by(TracerBatch.calibration_time.desc()).all()
+
+                if effective_dose is not None:
+                    total_consume = effective_dose + waste_activity
+                    for batch in tracer_batches:
+                        if batch.remaining_activity >= total_consume and not batch.is_expired():
+                            tracer_batch = batch
+                            break
+
+                    if tracer_batch is None and tracer_batches:
+                        raise ResourceNotAvailable(
+                            f"示踪剂活度不足，最大可用批次剩余: "
+                            f"{max(b.remaining_activity for b in tracer_batches)}MBq, "
+                            f"需要: {total_consume}MBq"
+                        )
+                    elif tracer_batch is None:
+                        raise ResourceNotAvailable(f"示踪剂ID {request.tracer_id} 无可用批次")
+                elif tracer_batches:
+                    tracer_batches = [b for b in tracer_batches if not b.is_expired()]
+                    if tracer_batches:
+                        tracer_batch = tracer_batches[0]
 
         self._update_appointment_status(appointment, "injected", injection_time)
         appointment.injection_time = injection_time
@@ -193,35 +216,49 @@ class StatusService:
         if request.blood_glucose is not None:
             appointment.blood_glucose = request.blood_glucose
 
-        if tracer_batch and effective_dose:
-            tracer_batch.remaining_activity -= effective_dose
+        if tracer_batch and effective_dose is not None and effective_dose > 0:
+            total_consume = effective_dose + waste_activity
+
+            if tracer_batch.remaining_activity < total_consume:
+                raise ResourceNotAvailable(
+                    f"示踪剂活度不足，剩余: {tracer_batch.remaining_activity}MBq, "
+                    f"需要: {total_consume}MBq"
+                )
+
+            tracer_batch.used_activity_mbq = (tracer_batch.used_activity_mbq or 0) + effective_dose
+            if waste_activity > 0:
+                tracer_batch.wasted_activity_mbq = (tracer_batch.wasted_activity_mbq or 0) + waste_activity
+
             if tracer_batch.remaining_activity <= 0:
-                tracer_batch.status = "used_up"
+                tracer_batch.status = "used"
 
             tracer_usage = TracerUsage(
                 appointment_id=appointment.id,
                 tracer_id=tracer_batch.tracer_id,
-                tracer_batch_id=tracer_batch.id,
-                batch_no=tracer_batch.batch_no,
-                tracer_type=request.tracer_type,
+                batch_id=tracer_batch.id,
                 dose_mbq=effective_dose,
                 injection_time=injection_time,
                 injection_site=effective_site,
                 administered_by=request.administered_by,
                 remaining_activity=request.remaining_activity,
-                waste_activity=request.waste_activity
+                waste_activity=waste_activity,
+                vein_access=request.vein_access,
+                notes=request.notes
             )
             self.db.add(tracer_usage)
 
-            if request.waste_activity and request.waste_activity > 0:
+            if waste_activity > 0:
                 drug_waste = DrugWasteRecord(
                     hospital_id=appointment.hospital_id,
                     tracer_id=tracer_batch.tracer_id,
-                    tracer_batch_id=tracer_batch.id,
-                    waste_activity_mbq=request.waste_activity,
-                    waste_reason="injection_residue",
-                    recorded_at=injection_time,
-                    recorded_by=request.administered_by or effective_recorded_by
+                    batch_id=tracer_batch.id,
+                    waste_date=injection_time.date(),
+                    waste_type="injection_residue",
+                    total_activity_mbq=tracer_batch.total_activity_mbq,
+                    wasted_activity_mbq=waste_activity,
+                    used_activity_mbq=tracer_batch.used_activity_mbq or 0,
+                    reason="注射残留",
+                    reported_by=request.administered_by or effective_recorded_by
                 )
                 self.db.add(drug_waste)
 

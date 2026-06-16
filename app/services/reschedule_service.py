@@ -277,10 +277,55 @@ class RescheduleService:
         """
         批量重排预约
         支持多种重排策略
+        每个传入的预约ID都会出现在结果明细中
         """
-        appointments = self._get_appointments_for_reschedule(request)
+        rescheduleable_statuses = ["pending", "confirmed", "checked_in"]
 
-        if not appointments:
+        if request.appointment_ids:
+            all_ids = list(request.appointment_ids)
+            all_appointments = self.db.query(Appointment).filter(
+                Appointment.id.in_(all_ids)
+            ).all()
+            apt_map = {a.id: a for a in all_appointments}
+
+            appointments = []
+            skipped_results = []
+            failed_results = []
+
+            for apt_id in all_ids:
+                apt = apt_map.get(apt_id)
+                if not apt:
+                    failed_results.append(
+                        RescheduleResult(
+                            appointment_id=apt_id,
+                            appointment_no="",
+                            patient_name="未知",
+                            success=False,
+                            status="failed",
+                            message="预约不存在",
+                            errors=["预约不存在"]
+                        )
+                    )
+                elif apt.status not in rescheduleable_statuses:
+                    skipped_results.append(
+                        RescheduleResult(
+                            appointment_id=apt.id,
+                            appointment_no=apt.appointment_no,
+                            patient_name=apt.patient.name if apt.patient else "未知",
+                            success=False,
+                            status="skipped",
+                            message=f"状态{apt.status}不可重排",
+                            errors=[f"状态{apt.status}不可重排"]
+                        )
+                    )
+                else:
+                    appointments.append(apt)
+        else:
+            appointments = self._get_appointments_for_reschedule(request)
+            skipped_results = []
+            failed_results = []
+
+        if not appointments and not skipped_results and not failed_results:
             return BatchRescheduleResult(
                 total_count=0,
                 success_count=0,
@@ -303,8 +348,9 @@ class RescheduleService:
 
         results: List[RescheduleResult] = []
         success_count = 0
-        failed_count = 0
-        skipped_count = 0
+        runtime_failed_count = 0
+        skipped_count = len(skipped_results)
+        input_failed_count = len(failed_results)
         affected_hospitals = set()
 
         for appointment in sorted_appointments:
@@ -323,48 +369,55 @@ class RescheduleService:
                     if request.notify_hospital and not request.dry_run:
                         self._send_hospital_notification(appointment, result)
                 else:
-                    failed_count += 1
+                    runtime_failed_count += 1
                 results.append(result)
             except Exception as e:
                 logger.error(f"重排预约 {appointment.id} 失败: {str(e)}")
-                failed_count += 1
+                runtime_failed_count += 1
                 results.append(
                     RescheduleResult(
                         appointment_id=appointment.id,
                         appointment_no=appointment.appointment_no,
                         patient_name=appointment.patient.name if appointment.patient else "未知",
                         success=False,
+                        status="failed",
                         message=f"重排失败: {str(e)}",
                         errors=[str(e)]
                     )
                 )
 
+        all_results = skipped_results + failed_results + results
+        total_failed = input_failed_count + runtime_failed_count
+        total_count = len(all_results)
+
         if not request.dry_run:
             self.db.commit()
 
         summary = self._generate_reschedule_summary(
-            results=results,
+            results=all_results,
             request=request,
             success_count=success_count,
-            failed_count=failed_count
+            failed_count=total_failed
         )
 
         return BatchRescheduleResult(
-            total_count=len(appointments),
+            total_count=total_count,
             success_count=success_count,
-            failed_count=failed_count,
+            failed_count=total_failed,
             skipped_count=skipped_count,
-            total=len(appointments),
+            total=total_count,
             success=success_count,
-            failed=failed_count,
+            failed=total_failed,
             skipped=skipped_count,
             reason=request.reason,
             strategy=request.strategy,
-            results=results,
-            success_details=self._build_success_details(results),
+            results=all_results,
+            success_details=self._build_success_details(all_results),
+            failed_details=self._build_failed_details(all_results),
+            skipped_details=self._build_skipped_details(all_results),
             affected_hospitals=list(affected_hospitals),
             summary=summary,
-            warnings=self._generate_warnings(results)
+            warnings=self._generate_warnings(all_results)
         )
 
     def _reschedule_single_appointment(
@@ -808,10 +861,44 @@ class RescheduleService:
                     "new_hospital_id": result.new_hospital_id,
                     "new_hospital_name": result.new_hospital_name,
                     "new_queue_number": result.new_queue_number,
+                    "new_equipment_id": result.new_equipment_id,
                     "notification_sent": result.notification_sent,
                     "message": result.message
                 })
         return success_details
+
+    def _build_failed_details(
+        self,
+        results: List[RescheduleResult]
+    ) -> List[Dict[str, Any]]:
+        """从结果中构造失败详情"""
+        failed_details = []
+        for result in results:
+            if not result.success and result.status == "failed":
+                failed_details.append({
+                    "appointment_id": result.appointment_id,
+                    "appointment_no": result.appointment_no,
+                    "patient_name": result.patient_name,
+                    "message": result.message,
+                    "errors": result.errors
+                })
+        return failed_details
+
+    def _build_skipped_details(
+        self,
+        results: List[RescheduleResult]
+    ) -> List[Dict[str, Any]]:
+        """从结果中构造跳过详情"""
+        skipped_details = []
+        for result in results:
+            if not result.success and result.status == "skipped":
+                skipped_details.append({
+                    "appointment_id": result.appointment_id,
+                    "appointment_no": result.appointment_no,
+                    "patient_name": result.patient_name,
+                    "reason": result.message
+                })
+        return skipped_details
 
     def _generate_reschedule_summary(
         self,
